@@ -1,0 +1,8 @@
+store_name,format,lat,lng,status,department,municipio,open_date,notes
+"Despensa Familiar Zona 1",Despensa Familiar,14.6408,-90.5133,open,Guatemala,Guatemala,2020-01-15,Centro histórico
+"Despensa Familiar Mixco",Despensa Familiar,14.6350,-90.5950,open,Guatemala,Mixco,2019-06-01,Plaza Comercial Norte
+"Maxi Despensa Villa Nueva",Maxi Despensa,14.5286,-90.5897,open,Guatemala,Villa Nueva,2021-03-10,Calzada Roosevelt km 18
+"Despensa Familiar Xela",Despensa Familiar,14.8347,-91.5172,open,Quetzaltenango,Quetzaltenango,2018-11-20,Zona 3 Quetzaltenango
+"Despensa Familiar Cobán",Despensa Familiar,15.4680,-90.3740,open,Alta Verapaz,Cobán,2022-05-15,
+"Maxi Despensa Escuintla",Maxi Despensa,14.3020,-90.7850,open,Escuintla,Escuintla,2023-01-10,
+"Despensa Familiar Chimaltenango",Despensa Familiar,14.6600,-90.8197,planned,Chimaltenango,Chimaltenango,,Apertura Q2 2024
