@@ -1,8 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import dotenv from 'dotenv';
 import { pool, testConnection } from './db';
 import { errorHandler } from './middleware/errorHandler';
+import { initDb } from './scripts/initDb';
+import { autoSeedIfEmpty } from './scripts/autoSeed';
 
 import storeRoutes from './routes/stores';
 import competitorRoutes from './routes/competitors';
@@ -15,6 +18,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const isProd = process.env.NODE_ENV === 'production';
 
 // --- Middleware ---
 app.use(cors({
@@ -58,10 +62,20 @@ app.use('/api/scoring', scoringRoutes);
 app.use('/api/osm', osmRoutes);
 app.use('/api/admin', adminRoutes);
 
-// --- 404 handler ---
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+// --- Serve compiled React frontend in production ---
+if (isProd) {
+  const publicDir = path.join(__dirname, '../public');
+  app.use(express.static(publicDir));
+  // Any non-API route returns index.html (React handles routing client-side)
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+} else {
+  // --- 404 handler (dev only — prod catch-all is the React app above) ---
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+  });
+}
 
 // --- Centralized error handler ---
 app.use(errorHandler);
@@ -69,6 +83,14 @@ app.use(errorHandler);
 // --- Start ---
 (async () => {
   await testConnection();
+
+  if (isProd) {
+    console.log('[startup] Initializing database schema...');
+    await initDb();
+    console.log('[startup] Checking seed data...');
+    await autoSeedIfEmpty();
+  }
+
   app.listen(PORT, () => {
     console.log(`GeoRetail Guatemala API running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

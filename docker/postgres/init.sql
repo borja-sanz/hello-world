@@ -38,6 +38,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS stores_geometry_trigger ON stores;
 CREATE TRIGGER stores_geometry_trigger
     BEFORE INSERT OR UPDATE ON stores
     FOR EACH ROW EXECUTE FUNCTION update_store_geometry();
@@ -96,6 +97,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS competitors_geometry_trigger ON competitors;
 CREATE TRIGGER competitors_geometry_trigger
     BEFORE INSERT OR UPDATE ON competitors
     FOR EACH ROW EXECUTE FUNCTION update_competitor_geometry();

@@ -4,8 +4,10 @@ import type {
   TradeAreaAnalysis, CalibrationConfig,
 } from '../types';
 
+// In production (Render), VITE_API_URL is set to '' so requests go to
+// the same domain. In development it falls back to localhost:4000.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
+  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:4000',
   timeout: 30_000,
 });
 
