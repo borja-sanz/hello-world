@@ -136,18 +136,49 @@ function scorePopulation(
 }
 
 /**
+ * Department-level population density (persons/km²).
+ * Source: INE Guatemala Censo 2018 population + SEGEPLAN department areas.
+ * Used as a foot-traffic / mobility proxy: denser departments have more
+ * commercial movement even in municipios without detailed OSM road data.
+ */
+const DEPT_DENSITY: Record<string, number> = {
+  'Guatemala':       1475,  // 3,322,000 pop / 2,253 km²
+  'Sacatepéquez':     779,  //   362,000 /   465 km²
+  'Totonicapán':      458,  //   486,000 / 1,061 km²
+  'Sololá':           449,  //   476,000 / 1,061 km²
+  'Quetzaltenango':   433,  //   846,000 / 1,951 km²
+  'Chimaltenango':    339,  //   671,000 / 1,979 km²
+  'San Marcos':       294,  // 1,115,000 / 3,791 km²
+  'Suchitepéquez':    237,  //   594,000 / 2,510 km²
+  'Escuintla':        164,  //   720,000 / 4,384 km²
+  'Jalapa':           164,  //   338,000 / 2,063 km²
+  'Chiquimula':       168,  //   400,000 / 2,376 km²
+  'Huehuetenango':    165,  // 1,225,000 / 7,403 km²
+  'Retalhuleu':       178,  //   330,000 / 1,858 km²
+  'Jutiapa':          153,  //   494,000 / 3,219 km²
+  'Alta Verapaz':     141,  // 1,222,000 / 8,686 km²
+  'Santa Rosa':       131,  //   388,000 / 2,955 km²
+  'Quiché':           126,  // 1,053,000 / 8,378 km²
+  'El Progreso':       93,  //   179,000 / 1,922 km²
+  'Baja Verapaz':      90,  //   282,000 / 3,124 km²
+  'Zacapa':            88,  //   237,000 / 2,690 km²
+  'Izabal':            51,  //   459,000 / 9,038 km²
+  'Petén':             19,  //   684,000 / 35,854 km²
+};
+
+/**
  * MOBILITY SCORE (0–100)
- * Primary: POI count from poi_cache (roads, bus stops, fuel stations).
- * Fallback: urban flag + competitor presence as road-access proxy.
+ * Primary: OSM road/transit POI count from poi_cache within 10 km.
+ * Secondary: department population density (SEGEPLAN + INE 2018).
+ * Fallback: urban flag + commercial presence.
  */
 async function scoreMobility(
   lat: number,
   lng: number,
-  isUrban: boolean
+  isUrban: boolean,
+  department: string | null
 ): Promise<number> {
-  let score = isUrban ? 55 : 30; // urban base
-
-  // Count road-related POIs in cache within 10km
+  // 1. OSM road/transit POIs
   const poiResult = await pool.query(
     `SELECT COUNT(*) AS cnt
      FROM poi_cache
@@ -162,8 +193,8 @@ async function scoreMobility(
   );
   const poiCount = parseInt(poiResult.rows[0]?.cnt ?? '0');
 
+  let score: number;
   if (poiCount > 0) {
-    // Have real data: normalize against 50 POIs = full mobility score
     score = clamp(piecewise(poiCount, [
       [0,   isUrban ? 40 : 20],
       [5,   55],
@@ -173,20 +204,33 @@ async function scoreMobility(
       [100, 100],
     ]));
   } else {
-    // Fallback: count any stores/competitors within 10km (implies road access)
+    // Fallback: store/competitor presence implies road access
     const storeResult = await pool.query(
       `SELECT COUNT(*) AS cnt FROM (
-         SELECT geometry FROM stores   WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
+         SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
          UNION ALL
          SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
        ) combined`,
       [lat, lng]
     );
     const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
-    score = clamp(score + Math.min(storeCount * 3, 30));
+    score = clamp((isUrban ? 55 : 30) + Math.min(storeCount * 3, 30));
   }
 
-  return score;
+  // 2. Department density bonus (INE 2018 / SEGEPLAN areas)
+  //    Denser departments have more foot traffic regardless of road POI coverage.
+  const density = department ? (DEPT_DENSITY[department] ?? 0) : 0;
+  const densityBonus = clamp(piecewise(density, [
+    [0,    0],
+    [50,   3],
+    [150,  8],
+    [300, 13],
+    [500, 18],
+    [800, 22],
+    [1500, 25],
+  ]));
+
+  return clamp(score + densityBonus);
 }
 
 /**
@@ -300,14 +344,26 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
 
 /**
  * SOCIOECONOMIC SCORE (0–100)
- * Primary: schools, health centers, churches within 5km.
- * Fallback: urban classification.
+ *
+ * When real data is available (seeded from INE ENCOVI 2014 + Banguat 2020):
+ *   - Purchasing power  = (1 − poverty_index) × 75   [0–75]
+ *     Source: INE Guatemala ENCOVI 2014 department poverty rates
+ *   - Remittance bonus  = remittance_index × 15       [0–15]
+ *     Source: Banco de Guatemala remittance distribution 2020
+ *   - Amenity signal    = OSM schools/hospitals nearby [0–10]
+ *     (infrastructure density correlates with purchasing power)
+ *
+ * Fallback (no real data): OSM social-infrastructure POI count, urban flag.
  */
 async function scoreSocioeconomic(
   lat: number,
   lng: number,
-  isUrban: boolean
+  isUrban: boolean,
+  povertyIndex: number | null,
+  remittanceIndex: number | null
 ): Promise<number> {
+  // OSM social infrastructure POIs (used as primary signal if no real data,
+  // or as a small amenity bonus when real data is present)
   const poiResult = await pool.query(
     `SELECT COUNT(*) AS cnt
      FROM poi_cache
@@ -320,20 +376,32 @@ async function scoreSocioeconomic(
        )`,
     [lat, lng]
   );
-  const cnt = parseInt(poiResult.rows[0]?.cnt ?? '0');
+  const poiCnt = parseInt(poiResult.rows[0]?.cnt ?? '0');
 
-  if (cnt > 0) {
-    return clamp(piecewise(cnt, [
-      [0,  20],
-      [3,  40],
-      [8,  60],
-      [15, 75],
-      [30, 90],
-      [60, 100],
+  if (povertyIndex !== null) {
+    // ── Real data path ────────────────────────────────────────────────────────
+    // Purchasing power: lower poverty = higher disposable income
+    const purchasingPower = (1 - povertyIndex) * 75;
+
+    // Remittance bonus: even high-poverty areas can have strong purchasing power
+    // if a large share of households receive remittances (e.g. Huehuetenango)
+    const remittanceBonus = (remittanceIndex ?? 0) * 15;
+
+    // Small amenity quality-of-life bonus from OSM infrastructure
+    const amenityBonus = clamp(piecewise(poiCnt, [
+      [0,  0], [3, 3], [8, 6], [20, 10],
     ]));
+
+    return clamp(purchasingPower + remittanceBonus + amenityBonus);
   }
 
-  return isUrban ? 55 : 35; // fallback
+  // ── Fallback: POI-proxy path ─────────────────────────────────────────────
+  if (poiCnt > 0) {
+    return clamp(piecewise(poiCnt, [
+      [0,  20], [3, 40], [8, 60], [15, 75], [30, 90], [60, 100],
+    ]));
+  }
+  return isUrban ? 55 : 35;
 }
 
 // ─── Format recommendation ────────────────────────────────────────────────────
@@ -386,9 +454,9 @@ export async function scorePoint(
 ): Promise<OpportunityScore & { municipio_id?: number; municipio_name?: string }> {
   const cfg = config ?? await loadCalibrationConfig();
 
-  // Find nearest/containing municipio
+  // Find nearest/containing municipio — include real socioeconomic indicators
   const municipioResult = await pool.query(
-    `SELECT id, name, department, population, is_urban
+    `SELECT id, name, department, population, is_urban, poverty_index, remittance_index
      FROM municipios
      WHERE centroid IS NOT NULL
      ORDER BY centroid <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)
@@ -396,8 +464,11 @@ export async function scorePoint(
     [lat, lng]
   );
   const municipio = municipioResult.rows[0];
-  const pop = parseInt(municipio?.population ?? '0');
-  const isUrban = municipio?.is_urban ?? false;
+  const pop             = parseInt(municipio?.population ?? '0');
+  const isUrban         = municipio?.is_urban ?? false;
+  const department      = municipio?.department ?? null;
+  const povertyIndex    = municipio?.poverty_index    != null ? parseFloat(municipio.poverty_index)    : null;
+  const remittanceIndex = municipio?.remittance_index != null ? parseFloat(municipio.remittance_index) : null;
 
   // Population within rings
   const pop3Result = await pool.query(
@@ -418,10 +489,10 @@ export async function scorePoint(
   // Calculate all factor scores
   const [mobilityScore, commercialScore, competitionScore, socioScore] =
     await Promise.all([
-      scoreMobility(lat, lng, isUrban),
+      scoreMobility(lat, lng, isUrban, department),
       scoreCommercial(lat, lng),
       scoreCompetition(lat, lng),
-      scoreSocioeconomic(lat, lng, isUrban),
+      scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex),
     ]);
 
   const popScore = scorePopulation(pop, pop3km, pop10km, cfg);
