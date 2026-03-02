@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { pool, testConnection } from './db';
+import { errorHandler } from './middleware/errorHandler';
 
-// Route imports (populated in later modules)
 import storeRoutes from './routes/stores';
 import competitorRoutes from './routes/competitors';
 import municipioRoutes from './routes/municipios';
@@ -28,11 +28,22 @@ app.use(express.urlencoded({ extended: true }));
 // --- Health check ---
 app.get('/health', async (_req, res) => {
   try {
-    const dbResult = await pool.query('SELECT NOW()');
+    const dbResult = await pool.query(`
+      SELECT NOW() AS now,
+             (SELECT COUNT(*) FROM municipios) AS municipio_count,
+             (SELECT COUNT(*) FROM stores)     AS store_count,
+             (SELECT COUNT(*) FROM competitors) AS competitor_count
+    `);
+    const row = dbResult.rows[0];
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      db: dbResult.rows[0].now,
+      db: { connected: true, time: row.now },
+      counts: {
+        municipios: parseInt(row.municipio_count),
+        stores: parseInt(row.store_count),
+        competitors: parseInt(row.competitor_count),
+      },
     });
   } catch (err) {
     res.status(503).json({ status: 'error', message: 'Database unavailable' });
@@ -52,11 +63,8 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// --- Error handler ---
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error', message: err.message });
-});
+// --- Centralized error handler ---
+app.use(errorHandler);
 
 // --- Start ---
 (async () => {
