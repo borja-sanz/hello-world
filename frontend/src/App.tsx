@@ -4,7 +4,8 @@ import Sidebar from './components/Sidebar';
 import AdminPanel from './pages/AdminPanel';
 import {
   fetchStores, fetchCompetitors,
-  fetchOpportunities, analyzeTradeArea, calculateAllScores,
+  fetchOpportunities, fetchBlueOceanOpportunities,
+  analyzeTradeArea, calculateAllScores,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
@@ -40,7 +41,7 @@ const App: React.FC = () => {
   });
 
   const [filters, setFilters] = useState<FilterState>({
-    minPopulation: 0, minScore: 0, storeFormat: '', showOnlyGo: false,
+    minPopulation: 0, minScore: 0, storeFormat: '', showOnlyGo: false, blueOcean: false,
   });
 
   // ── Initial data load ─────────────────────────────────────────────────────
@@ -57,6 +58,26 @@ const App: React.FC = () => {
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // ── Blue ocean mode: re-fetch from dedicated endpoint when toggled ────────
+  const prevBlueOcean = React.useRef(false);
+  useEffect(() => {
+    if (filters.blueOcean === prevBlueOcean.current) return;
+    prevBlueOcean.current = filters.blueOcean;
+
+    setLoading(true);
+    if (filters.blueOcean) {
+      fetchBlueOceanOpportunities({ min_population: 15000, limit: 40 })
+        .then(r => setOpportunities(addCentroidsFromOpps(r.opportunities)))
+        .catch(e => setError('Error blue ocean: ' + e.message))
+        .finally(() => setLoading(false));
+    } else {
+      fetchOpportunities({ limit: 50 })
+        .catch(() => ({ opportunities: [], cached: false }))
+        .then(r => setOpportunities(addCentroidsFromOpps((r as any).opportunities)))
+        .finally(() => setLoading(false));
+    }
+  }, [filters.blueOcean]);
 
   // Attach lat/lng to opportunities from the centroid_geojson field if present
   function addCentroidsFromOpps(opps: any[]): OpportunityScore[] {

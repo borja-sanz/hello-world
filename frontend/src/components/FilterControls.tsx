@@ -77,6 +77,26 @@ const FilterControls: React.FC<Props> = ({
         />
       </div>
 
+      {/* Blue Ocean preset */}
+      <div>
+        <button
+          onClick={() => onFilterChange({ ...filters, blueOcean: !filters.blueOcean })}
+          className={`w-full text-xs py-1.5 px-3 rounded-md font-medium transition-colors border ${
+            filters.blueOcean
+              ? 'bg-cyan-600 hover:bg-cyan-700 text-white border-cyan-600'
+              : 'bg-white dark:bg-gray-800 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'
+          }`}
+          title="Municipios con suficiente población, pocos competidores, y sin tienda propia cercana"
+        >
+          {filters.blueOcean ? '🌊 Mercado virgen (activo)' : '🌊 Mostrar mercado virgen'}
+        </button>
+        {filters.blueOcean && (
+          <p className="text-[10px] text-cyan-600 dark:text-cyan-400 mt-1 text-center">
+            Sin cobertura propia ≥15 km · competencia baja · pop ≥15k
+          </p>
+        )}
+      </div>
+
       {/* Recalculate button */}
       <button
         onClick={onCalculate}

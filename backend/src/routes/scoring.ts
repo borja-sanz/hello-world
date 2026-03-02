@@ -59,6 +59,65 @@ router.get('/municipios', async (req: Request, res: Response, next: NextFunction
 });
 
 /**
+ * GET /api/scoring/blue-ocean?min_population=15000&min_nearest_store_km=15&limit=30
+ *
+ * "Blue ocean" municipios: enough population to be viable, few/no competitors,
+ * and no existing own-store coverage within min_nearest_store_km.
+ *
+ * Sorted by competition_score DESC then population DESC so the most underserved
+ * large markets appear first — these won't necessarily rank high on the overall
+ * score because other factors (e.g. socioeconomic) may be modest.
+ */
+router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const minPop          = parseInt((req.query.min_population as string) || '15000');
+    const minNearestKm    = parseFloat((req.query.min_nearest_store_km as string) || '15');
+    const limit           = Math.min(parseInt((req.query.limit as string) || '30'), 50);
+
+    // Use a CTE so we can filter on the computed nearest_store_km
+    const result = await pool.query(
+      `WITH ranked AS (
+         SELECT
+           los.municipio_id, los.municipio_name, los.department,
+           los.population, los.score,
+           los.pop_score, los.mobility_score, los.commercial_score,
+           los.competition_score, los.socioeconomic_score,
+           los.recommendation, los.suggested_format, los.reasoning,
+           los.calculated_at,
+           ST_AsGeoJSON(los.centroid_geojson)::text AS centroid,
+           (SELECT ROUND(ST_Distance(s.geometry::geography, m.centroid::geography) / 1000)
+            FROM stores s
+            JOIN municipios m ON m.id = los.municipio_id
+            WHERE s.geometry IS NOT NULL
+            ORDER BY s.geometry <-> m.centroid
+            LIMIT 1) AS nearest_store_km
+         FROM latest_opportunity_scores los
+         WHERE COALESCE(los.population, 0) >= $1
+           AND COALESCE(los.competition_score, 0) >= 60
+       )
+       SELECT * FROM ranked
+       WHERE COALESCE(nearest_store_km, 9999) >= $2
+       ORDER BY competition_score DESC, population DESC
+       LIMIT $3`,
+      [minPop, minNearestKm, limit]
+    );
+
+    if (result.rows.length === 0) {
+      res.json({
+        count: 0,
+        message: 'No blue ocean results. Run calculate-all to generate scores first.',
+        opportunities: [],
+      });
+      return;
+    }
+
+    res.json({ count: result.rows.length, opportunities: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/scoring/config
  * Returns the active calibration config.
  */

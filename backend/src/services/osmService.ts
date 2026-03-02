@@ -40,6 +40,14 @@ const TAG_TO_TYPE: { test: (tags: Record<string, string>) => boolean; type: stri
   { test: t => t.amenity === 'fuel',                      type: 'fuel' },
   { test: t => t.highway === 'primary' || t.highway === 'trunk', type: 'highway_primary' },
   { test: t => t.highway === 'secondary',                 type: 'highway_secondary' },
+  // Money-transfer agents: direct observable signal of remittance activity.
+  // Western Union, MoneyGram, Banrural Remesas, and Gi Go are densely mapped
+  // in OSM for Guatemala and confirm active household remittance income in an area.
+  {
+    test: t => t.amenity === 'money_transfer' ||
+               /western.?union|moneygram|remesa|gi\.?go/i.test(t.name ?? ''),
+    type: 'money_transfer',
+  },
 ];
 
 function classifyPoi(tags: Record<string, string>): string {
@@ -147,9 +155,10 @@ export async function refreshCommercialPois(): Promise<number> {
   const query = `
 [out:json][timeout:90];
 (
-  node["amenity"~"bank|pharmacy|marketplace|bus_station|fuel|school|hospital|clinic|place_of_worship"](${BBOX});
+  node["amenity"~"bank|pharmacy|marketplace|bus_station|fuel|school|hospital|clinic|place_of_worship|money_transfer"](${BBOX});
   node["shop"~"market|hardware|doityourself"](${BBOX});
   node["highway"="bus_stop"](${BBOX});
+  node["name"~"western union|moneygram|remesa|gi go",i](${BBOX});
 );
 out center;`.trim();
 

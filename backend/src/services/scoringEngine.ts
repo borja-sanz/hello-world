@@ -244,7 +244,7 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
     `SELECT COUNT(*) AS cnt
      FROM poi_cache
      WHERE poi_type IN ('bank','pharmacy','marketplace','market',
-                        'hardware','fuel','supermarket')
+                        'hardware','fuel','supermarket','money_transfer')
        AND ST_DWithin(
          geometry::geography,
          ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,

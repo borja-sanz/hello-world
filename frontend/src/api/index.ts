@@ -77,6 +77,13 @@ export const fetchOpportunities = async (params?: {
   return data;
 };
 
+export const fetchBlueOceanOpportunities = async (params?: {
+  min_population?: number; min_nearest_store_km?: number; limit?: number;
+}): Promise<{ opportunities: OpportunityScore[]; count: number }> => {
+  const { data } = await api.get('/api/scoring/blue-ocean', { params });
+  return data;
+};
+
 export const scorePoint = async (lat: number, lng: number) => {
   const { data } = await api.post('/api/scoring/point', { lat, lng });
   return data;

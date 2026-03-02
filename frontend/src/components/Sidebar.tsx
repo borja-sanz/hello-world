@@ -26,8 +26,10 @@ const Sidebar: React.FC<Props> = ({
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
-  const filtered = opportunities
-    .filter(o => (o.population ?? 0) >= filters.minPopulation && o.score >= filters.minScore);
+  const filtered = opportunities.filter(o => {
+    if (filters.blueOcean) return true; // already filtered server-side
+    return (o.population ?? 0) >= filters.minPopulation && o.score >= filters.minScore;
+  });
 
   return (
     <aside

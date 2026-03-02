@@ -33,6 +33,10 @@ const FACTOR_WEIGHTS: Record<string, string> = {
 };
 
 const OpportunityCard: React.FC<Props> = ({ opp, rank, onClick }) => {
+  // Blue ocean: high competition score (few competitors + no own store nearby) + no close own store
+  const isBlueOcean = opp.competition_score >= 60 &&
+    (opp.nearest_store_km === null || opp.nearest_store_km >= 15);
+
   const factors = [
     { key: 'population',    val: opp.pop_score },
     { key: 'mobility',      val: opp.mobility_score },
@@ -55,8 +59,17 @@ const OpportunityCard: React.FC<Props> = ({ opp, rank, onClick }) => {
             #{rank}
           </span>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
-              {opp.municipio_name}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+                {opp.municipio_name}
+              </span>
+              {isBlueOcean && (
+                <span className="text-[9px] font-bold bg-cyan-100 dark:bg-cyan-900/40
+                                 text-cyan-700 dark:text-cyan-300 px-1.5 py-0.5 rounded-full
+                                 whitespace-nowrap flex-shrink-0">
+                  🌊 VIRGEN
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-400 dark:text-gray-500">
               {opp.department}

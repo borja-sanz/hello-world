@@ -92,6 +92,7 @@ export interface FilterState {
   minScore: number;
   storeFormat: string;
   showOnlyGo: boolean;
+  blueOcean: boolean;
 }
 
 export interface CalibrationConfig {
