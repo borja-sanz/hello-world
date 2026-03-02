@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS poi_cache (
     id              SERIAL PRIMARY KEY,
     osm_id          BIGINT,
     osm_type        VARCHAR(10),
+    UNIQUE (osm_id, osm_type),
     name            VARCHAR(255),
     poi_type        VARCHAR(100) NOT NULL,
     lat             DECIMAL(10, 7) NOT NULL,

@@ -1,79 +1,204 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import MapView from './components/MapView';
+import Sidebar from './components/Sidebar';
+import AdminPanel from './pages/AdminPanel';
+import {
+  fetchStores, fetchCompetitors,
+  fetchOpportunities, analyzeTradeArea, calculateAllScores,
+} from './api';
+import { exportOpportunitiesReport } from './utils/export';
+import type {
+  Store, Competitor, OpportunityScore, TradeAreaAnalysis,
+  FilterState, LayerState,
+} from './types';
 
-// Placeholder layout — fully implemented in Module 6+
 const App: React.FC = () => {
-  const [isDark, setIsDark] = useState(false);
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  const [isDark, setIsDark] = useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
 
-  const toggleDark = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle('dark');
-  };
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
+
+  // ── Data state ────────────────────────────────────────────────────────────
+  const [stores,        setStores]        = useState<Store[]>([]);
+  const [competitors,   setCompetitors]   = useState<Competitor[]>([]);
+  const [opportunities, setOpportunities] = useState<OpportunityScore[]>([]);
+  const [tradeArea,     setTradeArea]     = useState<TradeAreaAnalysis | null>(null);
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [loading,      setLoading]      = useState(false);
+  const [mapLoading,   setMapLoading]   = useState(false);
+  const [calculating,  setCalculating]  = useState(false);
+  const [showAdmin,    setShowAdmin]    = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+
+  const [layers, setLayers] = useState<LayerState>({
+    stores: true, competitors: true, opportunities: true, heatmap: false,
+  });
+
+  const [filters, setFilters] = useState<FilterState>({
+    minPopulation: 0, minScore: 0, storeFormat: '', showOnlyGo: false,
+  });
+
+  // ── Initial data load ─────────────────────────────────────────────────────
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetchStores().catch(() => []),
+      fetchCompetitors().catch(() => []),
+      fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false })),
+    ]).then(([s, c, o]) => {
+      setStores(s);
+      setCompetitors(c);
+      setOpportunities(addCentroidsFromOpps(o.opportunities));
+    }).catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Attach lat/lng to opportunities from the centroid_geojson field if present
+  function addCentroidsFromOpps(opps: any[]): OpportunityScore[] {
+    return opps.map(o => ({
+      ...o,
+      centroid: o.centroid_geojson
+        ? (() => {
+            try {
+              const gj = typeof o.centroid_geojson === 'string'
+                ? JSON.parse(o.centroid_geojson)
+                : o.centroid_geojson;
+              return { lat: gj.coordinates[1], lng: gj.coordinates[0] };
+            } catch { return undefined; }
+          })()
+        : undefined,
+    }));
+  }
+
+  // ── Map click → trade area ────────────────────────────────────────────────
+  const handleMapClick = useCallback(async (lat: number, lng: number) => {
+    setMapLoading(true);
+    setTradeArea(null);
+    try {
+      const analysis = await analyzeTradeArea(lat, lng);
+      setTradeArea(analysis);
+    } catch (e: any) {
+      setError('Error al analizar área de influencia: ' + e.message);
+    } finally {
+      setMapLoading(false);
+    }
+  }, []);
+
+  // ── Recalculate all scores ────────────────────────────────────────────────
+  const handleCalculate = useCallback(async () => {
+    setCalculating(true);
+    try {
+      await calculateAllScores();
+      // Wait a beat then reload opportunities
+      setTimeout(async () => {
+        const fresh = await fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false }));
+        setOpportunities(addCentroidsFromOpps(fresh.opportunities));
+        setCalculating(false);
+      }, 3000);
+    } catch {
+      setCalculating(false);
+    }
+  }, []);
+
+  // ── Layer toggle ──────────────────────────────────────────────────────────
+  const handleLayerToggle = useCallback((key: keyof LayerState) => {
+    setLayers(l => ({ ...l, [key]: !l[key] }));
+  }, []);
+
+  // ── Opportunity card click → pan map ─────────────────────────────────────
+  const handleOppClick = useCallback((opp: OpportunityScore) => {
+    if (opp.centroid) {
+      handleMapClick(opp.centroid.lat as unknown as number, opp.centroid.lng as unknown as number);
+    }
+  }, [handleMapClick]);
 
   return (
-    <div className={`h-full flex flex-col ${isDark ? 'dark' : ''}`}>
-      {/* Header */}
-      <header className="bg-brand-700 dark:bg-gray-800 text-white px-4 py-3 flex items-center justify-between shadow-md z-10">
+    <div className="h-full flex flex-col">
+      {/* ── Header ── */}
+      <header className="bg-brand-700 dark:bg-gray-900 text-white px-4 py-2.5 flex items-center justify-between shadow-md z-[600] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-brand-400 rounded-full flex items-center justify-center font-bold text-brand-900 text-sm">
+          <div className="w-8 h-8 bg-brand-400 rounded-full flex items-center justify-center font-black text-brand-900 text-sm select-none">
             GR
           </div>
           <div>
-            <h1 className="text-lg font-semibold leading-tight">GeoRetail Guatemala</h1>
+            <h1 className="text-base font-bold leading-tight">GeoRetail Guatemala</h1>
             <p className="text-brand-200 text-xs">Inteligencia de Ubicación Retail</p>
           </div>
         </div>
-        <button
-          onClick={toggleDark}
-          className="text-sm bg-brand-600 hover:bg-brand-500 px-3 py-1 rounded-md transition-colors"
-        >
-          {isDark ? '☀️ Claro' : '🌙 Oscuro'}
-        </button>
+
+        <div className="flex items-center gap-2">
+          {opportunities.length > 0 && (
+            <button
+              onClick={() => exportOpportunitiesReport(opportunities)}
+              className="text-xs bg-brand-600 hover:bg-brand-500 px-2.5 py-1 rounded-md transition-colors"
+              title="Exportar reporte HTML"
+            >
+              📄 Reporte
+            </button>
+          )}
+          <button
+            onClick={() => setShowAdmin(true)}
+            className="text-xs bg-brand-600 hover:bg-brand-500 px-2.5 py-1 rounded-md transition-colors"
+          >
+            ⚙ Admin
+          </button>
+          <button
+            onClick={() => setIsDark(d => !d)}
+            className="text-xs bg-brand-600 hover:bg-brand-500 px-2.5 py-1 rounded-md transition-colors"
+          >
+            {isDark ? '☀️' : '🌙'}
+          </button>
+        </div>
       </header>
 
-      {/* Main content — map + sidebar */}
-      <main className="flex-1 flex overflow-hidden bg-gray-100 dark:bg-gray-900">
-        {/* Placeholder map area */}
-        <div className="flex-1 flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-          <div className="text-center text-gray-500 dark:text-gray-400">
-            <div className="text-6xl mb-4">🗺️</div>
-            <h2 className="text-xl font-semibold mb-2">Mapa Interactivo</h2>
-            <p className="text-sm">Módulo 6 — Componente del mapa con Leaflet.js</p>
-            <div className="mt-4 text-xs text-gray-400">
-              Infraestructura lista ✅ · Base de datos configurada ✅ · API stub ✅
-            </div>
-          </div>
+      {/* ── Error banner ── */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800
+                        px-4 py-2 text-xs text-red-600 dark:text-red-400 flex items-center justify-between z-[600]">
+          <span>⚠ {error}</span>
+          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-600">×</button>
+        </div>
+      )}
+
+      {/* ── Main ── */}
+      <main className="flex-1 flex overflow-hidden relative">
+        {/* Map */}
+        <div className="flex-1 relative">
+          <MapView
+            stores={stores}
+            competitors={competitors}
+            opportunities={opportunities}
+            layers={layers}
+            tradeArea={tradeArea}
+            onMapClick={handleMapClick}
+            loading={mapLoading}
+          />
         </div>
 
-        {/* Placeholder sidebar */}
-        <aside className="w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 p-4 overflow-y-auto scrollbar-thin">
-          <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide mb-4">
-            Top Oportunidades
-          </h2>
-          <div className="space-y-2">
-            {['Municipio A', 'Municipio B', 'Municipio C'].map((m, i) => (
-              <div
-                key={m}
-                className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200">#{i + 1} {m}</span>
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">--</span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Módulo 7 — Panel lateral</p>
-              </div>
-            ))}
-          </div>
-        </aside>
+        {/* Sidebar */}
+        <Sidebar
+          opportunities={opportunities}
+          tradeArea={tradeArea}
+          filters={filters}
+          layers={layers}
+          loading={loading}
+          calculating={calculating}
+          onFilterChange={setFilters}
+          onLayerToggle={handleLayerToggle}
+          onOppClick={handleOppClick}
+          onTradeAreaClose={() => setTradeArea(null)}
+          onCalculate={handleCalculate}
+          onOpenAdmin={() => setShowAdmin(true)}
+        />
       </main>
 
-      {/* Status bar */}
-      <footer className="bg-gray-800 dark:bg-gray-950 text-gray-400 text-xs px-4 py-1 flex items-center gap-4">
-        <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
-          Módulo 1 completado
-        </span>
-        <span>Infraestructura · Base de datos · Docker · API Stub</span>
-      </footer>
+      {/* ── Admin panel modal ── */}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
     </div>
   );
 };
