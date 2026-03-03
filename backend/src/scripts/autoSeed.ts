@@ -38,6 +38,14 @@ interface SocioeconomicEntry {
 }
 interface SocioeconomicFile { departments: SocioeconomicEntry[] }
 
+interface MunicipioDetailEntry {
+  name: string;
+  department: string;
+  poverty_index: number;
+  area_km2: number;
+}
+interface MunicipioDetailFile { municipios: MunicipioDetailEntry[] }
+
 interface OverpassElement {
   type: string;
   id: number;
@@ -344,10 +352,97 @@ async function seedStoresAndCompetitors(): Promise<void> {
   }
 }
 
+// ── Municipio detail (municipio-level poverty + area) ─────────────────────────
+// Source: World Bank 2014 Guatemala small-area poverty map + INE area data.
+// Provides intra-department differentiation for key urban centers.
+// Runs AFTER seedSocioeconomicIndicators() to override department-level defaults
+// with more accurate municipio-specific values where available.
+
+async function seedMunicipioDetail(): Promise<void> {
+  // area_km2 being non-null is our marker that this seed has already run
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM municipios WHERE area_km2 IS NOT NULL`
+  );
+  if (parseInt(rows[0].count) > 0) {
+    console.log('[autoSeed] Municipio detail data already present — skipping');
+    return;
+  }
+
+  const detailPath = path.join(DATA_DIR, 'municipio_detail.json');
+  if (!fs.existsSync(detailPath)) {
+    console.warn('[autoSeed] municipio_detail.json not found — skipping');
+    return;
+  }
+
+  const data = JSON.parse(fs.readFileSync(detailPath, 'utf8')) as MunicipioDetailFile;
+  const client = await pool.connect();
+  let updated = 0;
+
+  try {
+    await client.query('BEGIN');
+    for (const entry of data.municipios) {
+      const result = await client.query(
+        `UPDATE municipios
+         SET poverty_index = $1, area_km2 = $2
+         WHERE LOWER(TRIM(name))       = LOWER(TRIM($3))
+           AND LOWER(TRIM(department)) = LOWER(TRIM($4))`,
+        [entry.poverty_index, entry.area_km2, entry.name, entry.department]
+      );
+      updated += result.rowCount ?? 0;
+    }
+    await client.query('COMMIT');
+    console.log(`[autoSeed] Applied municipio-level detail (poverty + area) to ${updated} municipios`);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Calibration weight migration ──────────────────────────────────────────────
+// Bumps socioeconomic weight from 5% → 13% if the user hasn't customized it.
+// Now that real government data (INE ENCOVI poverty + Banguat remittances) drives
+// this factor at the municipio level, a higher weight reflects the signal quality.
+
+async function migrateCalibrationWeights(): Promise<void> {
+  const { rows } = await pool.query(
+    `SELECT id, weight_socioeconomic FROM calibration_config
+     WHERE is_active = true ORDER BY id DESC LIMIT 1`
+  );
+  if (rows.length === 0) return;
+
+  const currentSocio = parseFloat(rows[0].weight_socioeconomic);
+  // Only auto-migrate if weights are still at the original 5% default
+  if (Math.abs(currentSocio - 0.05) > 0.001) {
+    console.log('[autoSeed] Calibration weights already customized — skipping migration');
+    return;
+  }
+
+  await pool.query(
+    `UPDATE calibration_config
+     SET weight_population    = 0.28,
+         weight_mobility      = 0.22,
+         weight_commercial    = 0.22,
+         weight_competition   = 0.15,
+         weight_socioeconomic = 0.13,
+         name                 = 'real-data-v2',
+         updated_at           = NOW()
+     WHERE id = $1`,
+    [rows[0].id]
+  );
+  console.log(
+    '[autoSeed] Calibration weights updated: ' +
+    'population 30%→28%, mobility 25%→22%, commercial 25%→22%, socioeconomic 5%→13%'
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function autoSeedIfEmpty(): Promise<void> {
   await seedMunicipios();
-  await seedSocioeconomicIndicators();   // applies poverty + remittance data to municipios
-  await seedStoresAndCompetitors();      // fetches from OSM with static fallback
+  await seedSocioeconomicIndicators();  // department-level poverty + remittance baseline
+  await seedMunicipioDetail();          // municipio-specific overrides (poverty + area_km2)
+  await seedStoresAndCompetitors();     // fetches from OSM with static fallback
+  await migrateCalibrationWeights();    // bump socioeconomic weight to match real data quality
 }

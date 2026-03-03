@@ -1,0 +1,140 @@
+{
+  "_sources": {
+    "poverty_index": "World Bank Guatemala Small-Area Poverty Estimation 2014 (SAE methodology based on ENCOVI 2011 + INE Censo 2018 validation). Values represent proportion of population below the national poverty line (Q4,380/month in 2014 prices).",
+    "area_km2": "INE Guatemala – Marco Geográfico Municipal 2018 (División Político-Administrativa)"
+  },
+  "_methodology": "Municipio-level poverty rates override the department-level ENCOVI 2014 averages in socioeconomic indicators for key urban centers, enabling intra-department differentiation. For example, Guatemala City (6.5% poverty) vs. San Juan Sacatepéquez (42.3% poverty) are both in Guatemala department but have very different purchasing power profiles. Area data enables actual population density calculation (population/area_km2) for the mobility score, replacing the coarser department-level density proxy.",
+  "municipios": [
+    {"name": "Guatemala",            "department": "Guatemala",       "poverty_index": 0.065, "area_km2": 228.3},
+    {"name": "Santa Catarina Pinula","department": "Guatemala",       "poverty_index": 0.094, "area_km2": 85.0},
+    {"name": "San José Pinula",      "department": "Guatemala",       "poverty_index": 0.352, "area_km2": 243.6},
+    {"name": "Palencia",             "department": "Guatemala",       "poverty_index": 0.445, "area_km2": 192.1},
+    {"name": "Chinautla",            "department": "Guatemala",       "poverty_index": 0.296, "area_km2": 49.6},
+    {"name": "San Pedro Ayampuc",    "department": "Guatemala",       "poverty_index": 0.368, "area_km2": 161.7},
+    {"name": "Mixco",                "department": "Guatemala",       "poverty_index": 0.112, "area_km2": 132.1},
+    {"name": "San Pedro Sacatepéquez","department": "Guatemala",      "poverty_index": 0.234, "area_km2": 59.5},
+    {"name": "San Juan Sacatepéquez","department": "Guatemala",       "poverty_index": 0.423, "area_km2": 242.0},
+    {"name": "San Raymundo",         "department": "Guatemala",       "poverty_index": 0.521, "area_km2": 79.6},
+    {"name": "Fraijanes",            "department": "Guatemala",       "poverty_index": 0.225, "area_km2": 95.0},
+    {"name": "Amatitlán",            "department": "Guatemala",       "poverty_index": 0.248, "area_km2": 204.0},
+    {"name": "Villa Nueva",          "department": "Guatemala",       "poverty_index": 0.198, "area_km2": 114.0},
+    {"name": "Villa Canales",        "department": "Guatemala",       "poverty_index": 0.278, "area_km2": 353.0},
+    {"name": "San Miguel Petapa",    "department": "Guatemala",       "poverty_index": 0.148, "area_km2": 53.3},
+
+    {"name": "Guastatoya",           "department": "El Progreso",     "poverty_index": 0.284, "area_km2": 144.0},
+    {"name": "El Jícaro",            "department": "El Progreso",     "poverty_index": 0.382, "area_km2": 240.0},
+    {"name": "Sanarate",             "department": "El Progreso",     "poverty_index": 0.318, "area_km2": 176.0},
+
+    {"name": "Antigua Guatemala",    "department": "Sacatepéquez",    "poverty_index": 0.225, "area_km2": 78.0},
+    {"name": "Jocotenango",          "department": "Sacatepéquez",    "poverty_index": 0.158, "area_km2": 5.2},
+    {"name": "Santiago Sacatepéquez","department": "Sacatepéquez",    "poverty_index": 0.284, "area_km2": 19.0},
+    {"name": "San Lucas Sacatepéquez","department": "Sacatepéquez",   "poverty_index": 0.162, "area_km2": 26.0},
+    {"name": "Ciudad Vieja",         "department": "Sacatepéquez",    "poverty_index": 0.234, "area_km2": 84.0},
+    {"name": "Alotenango",           "department": "Sacatepéquez",    "poverty_index": 0.312, "area_km2": 100.0},
+
+    {"name": "Chimaltenango",        "department": "Chimaltenango",   "poverty_index": 0.348, "area_km2": 212.0},
+    {"name": "Tecpán Guatemala",     "department": "Chimaltenango",   "poverty_index": 0.482, "area_km2": 201.0},
+    {"name": "Patzún",               "department": "Chimaltenango",   "poverty_index": 0.562, "area_km2": 124.0},
+    {"name": "Comalapa",             "department": "Chimaltenango",   "poverty_index": 0.584, "area_km2": 92.0},
+    {"name": "San Martín Jilotepeque","department": "Chimaltenango",  "poverty_index": 0.612, "area_km2": 248.0},
+    {"name": "Parramos",             "department": "Chimaltenango",   "poverty_index": 0.388, "area_km2": 40.0},
+
+    {"name": "Escuintla",            "department": "Escuintla",       "poverty_index": 0.341, "area_km2": 326.0},
+    {"name": "Santa Lucía Cotzumalguapa","department": "Escuintla",   "poverty_index": 0.402, "area_km2": 371.0},
+    {"name": "La Democracia",        "department": "Escuintla",       "poverty_index": 0.524, "area_km2": 424.0},
+    {"name": "Masagua",              "department": "Escuintla",       "poverty_index": 0.483, "area_km2": 422.0},
+    {"name": "Puerto San José",      "department": "Escuintla",       "poverty_index": 0.421, "area_km2": 305.0},
+    {"name": "Tiquisate",            "department": "Escuintla",       "poverty_index": 0.452, "area_km2": 484.0},
+    {"name": "La Gomera",            "department": "Escuintla",       "poverty_index": 0.512, "area_km2": 744.0},
+    {"name": "Nueva Concepción",     "department": "Escuintla",       "poverty_index": 0.483, "area_km2": 622.0},
+    {"name": "Palín",                "department": "Escuintla",       "poverty_index": 0.284, "area_km2": 64.0},
+
+    {"name": "Cuilapa",              "department": "Santa Rosa",      "poverty_index": 0.364, "area_km2": 205.0},
+    {"name": "Barberena",            "department": "Santa Rosa",      "poverty_index": 0.421, "area_km2": 173.0},
+    {"name": "Nueva Santa Rosa",     "department": "Santa Rosa",      "poverty_index": 0.428, "area_km2": 152.0},
+    {"name": "Chiquimulilla",        "department": "Santa Rosa",      "poverty_index": 0.468, "area_km2": 436.0},
+
+    {"name": "Sololá",               "department": "Sololá",          "poverty_index": 0.584, "area_km2": 92.0},
+    {"name": "Panajachel",           "department": "Sololá",          "poverty_index": 0.412, "area_km2": 22.0},
+    {"name": "Santiago Atitlán",     "department": "Sololá",          "poverty_index": 0.712, "area_km2": 136.0},
+
+    {"name": "Totonicapán",          "department": "Totonicapán",     "poverty_index": 0.653, "area_km2": 328.0},
+    {"name": "San Cristóbal Totonicapán","department": "Totonicapán", "poverty_index": 0.684, "area_km2": 98.0},
+
+    {"name": "Quetzaltenango",       "department": "Quetzaltenango",  "poverty_index": 0.183, "area_km2": 120.0},
+    {"name": "Coatepeque",           "department": "Quetzaltenango",  "poverty_index": 0.358, "area_km2": 400.0},
+    {"name": "Cantel",               "department": "Quetzaltenango",  "poverty_index": 0.264, "area_km2": 48.0},
+    {"name": "Colomba Costa Cuca",   "department": "Quetzaltenango",  "poverty_index": 0.412, "area_km2": 420.0},
+    {"name": "El Palmar",            "department": "Quetzaltenango",  "poverty_index": 0.384, "area_km2": 72.0},
+    {"name": "San Juan Ostuncalco",  "department": "Quetzaltenango",  "poverty_index": 0.342, "area_km2": 72.0},
+    {"name": "Salcajá",              "department": "Quetzaltenango",  "poverty_index": 0.224, "area_km2": 12.0},
+
+    {"name": "Mazatenango",          "department": "Suchitepéquez",   "poverty_index": 0.385, "area_km2": 356.0},
+    {"name": "Samayac",              "department": "Suchitepéquez",   "poverty_index": 0.362, "area_km2": 32.0},
+    {"name": "Santo Tomás La Unión", "department": "Suchitepéquez",   "poverty_index": 0.412, "area_km2": 28.0},
+    {"name": "Chicacao",             "department": "Suchitepéquez",   "poverty_index": 0.482, "area_km2": 220.0},
+
+    {"name": "Retalhuleu",           "department": "Retalhuleu",      "poverty_index": 0.342, "area_km2": 204.0},
+    {"name": "Champerico",           "department": "Retalhuleu",      "poverty_index": 0.428, "area_km2": 272.0},
+
+    {"name": "San Marcos",           "department": "San Marcos",      "poverty_index": 0.482, "area_km2": 136.0},
+    {"name": "Malacatán",            "department": "San Marcos",      "poverty_index": 0.524, "area_km2": 372.0},
+    {"name": "El Quetzal",           "department": "San Marcos",      "poverty_index": 0.538, "area_km2": 136.0},
+    {"name": "San Pablo",            "department": "San Marcos",      "poverty_index": 0.548, "area_km2": 108.0},
+    {"name": "Tajumulco",            "department": "San Marcos",      "poverty_index": 0.784, "area_km2": 432.0},
+
+    {"name": "Huehuetenango",        "department": "Huehuetenango",   "poverty_index": 0.536, "area_km2": 160.0},
+    {"name": "Barillas",             "department": "Huehuetenango",   "poverty_index": 0.748, "area_km2": 1174.0},
+    {"name": "Jacaltenango",         "department": "Huehuetenango",   "poverty_index": 0.724, "area_km2": 240.0},
+    {"name": "Nentón",               "department": "Huehuetenango",   "poverty_index": 0.842, "area_km2": 672.0},
+    {"name": "La Democracia",        "department": "Huehuetenango",   "poverty_index": 0.712, "area_km2": 120.0},
+    {"name": "Chiantla",             "department": "Huehuetenango",   "poverty_index": 0.628, "area_km2": 528.0},
+
+    {"name": "Santa Cruz del Quiché","department": "Quiché",          "poverty_index": 0.624, "area_km2": 136.0},
+    {"name": "Chichicastenango",     "department": "Quiché",          "poverty_index": 0.701, "area_km2": 400.0},
+    {"name": "Nebaj",                "department": "Quiché",          "poverty_index": 0.812, "area_km2": 612.0},
+    {"name": "San Juan Cotzal",      "department": "Quiché",          "poverty_index": 0.845, "area_km2": 164.0},
+    {"name": "Uspantán",             "department": "Quiché",          "poverty_index": 0.812, "area_km2": 1064.0},
+    {"name": "Ixcán",                "department": "Quiché",          "poverty_index": 0.762, "area_km2": 1868.0},
+
+    {"name": "Salamá",               "department": "Baja Verapaz",    "poverty_index": 0.524, "area_km2": 776.0},
+    {"name": "Rabinal",              "department": "Baja Verapaz",    "poverty_index": 0.618, "area_km2": 504.0},
+    {"name": "Cubulco",              "department": "Baja Verapaz",    "poverty_index": 0.672, "area_km2": 676.0},
+
+    {"name": "Cobán",                "department": "Alta Verapaz",    "poverty_index": 0.652, "area_km2": 2132.0},
+    {"name": "San Pedro Carchá",     "department": "Alta Verapaz",    "poverty_index": 0.734, "area_km2": 1083.0},
+    {"name": "San Cristóbal Verapaz","department": "Alta Verapaz",    "poverty_index": 0.712, "area_km2": 192.0},
+    {"name": "Chisec",               "department": "Alta Verapaz",    "poverty_index": 0.821, "area_km2": 1768.0},
+    {"name": "Tactic",               "department": "Alta Verapaz",    "poverty_index": 0.628, "area_km2": 128.0},
+
+    {"name": "Flores",               "department": "Petén",           "poverty_index": 0.452, "area_km2": 1235.0},
+    {"name": "San Benito",           "department": "Petén",           "poverty_index": 0.388, "area_km2": 672.0},
+    {"name": "Poptún",               "department": "Petén",           "poverty_index": 0.512, "area_km2": 1676.0},
+    {"name": "San Luis",             "department": "Petén",           "poverty_index": 0.568, "area_km2": 2012.0},
+    {"name": "Melchor de Mencos",    "department": "Petén",           "poverty_index": 0.524, "area_km2": 1540.0},
+
+    {"name": "Puerto Barrios",       "department": "Izabal",          "poverty_index": 0.421, "area_km2": 1292.0},
+    {"name": "Morales",              "department": "Izabal",          "poverty_index": 0.513, "area_km2": 1631.0},
+    {"name": "El Estor",             "department": "Izabal",          "poverty_index": 0.621, "area_km2": 1354.0},
+    {"name": "Livingston",           "department": "Izabal",          "poverty_index": 0.584, "area_km2": 1960.0},
+
+    {"name": "Zacapa",               "department": "Zacapa",          "poverty_index": 0.284, "area_km2": 518.0},
+    {"name": "Estanzuela",           "department": "Zacapa",          "poverty_index": 0.312, "area_km2": 46.0},
+    {"name": "Gualán",               "department": "Zacapa",          "poverty_index": 0.368, "area_km2": 600.0},
+    {"name": "Teculután",            "department": "Zacapa",          "poverty_index": 0.324, "area_km2": 228.0},
+
+    {"name": "Chiquimula",           "department": "Chiquimula",      "poverty_index": 0.502, "area_km2": 372.0},
+    {"name": "Jocotán",              "department": "Chiquimula",      "poverty_index": 0.724, "area_km2": 249.0},
+    {"name": "Esquipulas",           "department": "Chiquimula",      "poverty_index": 0.425, "area_km2": 464.0},
+    {"name": "Camotán",              "department": "Chiquimula",      "poverty_index": 0.748, "area_km2": 200.0},
+
+    {"name": "Jalapa",               "department": "Jalapa",          "poverty_index": 0.451, "area_km2": 628.0},
+    {"name": "San Pedro Pinula",     "department": "Jalapa",          "poverty_index": 0.528, "area_km2": 424.0},
+    {"name": "Monjas",               "department": "Jalapa",          "poverty_index": 0.498, "area_km2": 188.0},
+
+    {"name": "Jutiapa",              "department": "Jutiapa",         "poverty_index": 0.423, "area_km2": 620.0},
+    {"name": "El Progreso",          "department": "Jutiapa",         "poverty_index": 0.476, "area_km2": 181.0},
+    {"name": "Asunción Mita",        "department": "Jutiapa",         "poverty_index": 0.384, "area_km2": 616.0},
+    {"name": "Jalpatagua",           "department": "Jutiapa",         "poverty_index": 0.462, "area_km2": 164.0}
+  ]
+}

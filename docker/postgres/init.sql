@@ -139,11 +139,11 @@ CREATE TABLE IF NOT EXISTS opportunity_scores (
     competition_score   DECIMAL(5, 2),
     socioeconomic_score DECIMAL(5, 2),
     -- Factor weights used (for audit trail)
-    weight_population   DECIMAL(4, 2) DEFAULT 0.30,
-    weight_mobility     DECIMAL(4, 2) DEFAULT 0.25,
-    weight_commercial   DECIMAL(4, 2) DEFAULT 0.25,
+    weight_population   DECIMAL(4, 2) DEFAULT 0.28,
+    weight_mobility     DECIMAL(4, 2) DEFAULT 0.22,
+    weight_commercial   DECIMAL(4, 2) DEFAULT 0.22,
     weight_competition  DECIMAL(4, 2) DEFAULT 0.15,
-    weight_socioeconomic DECIMAL(4, 2) DEFAULT 0.05,
+    weight_socioeconomic DECIMAL(4, 2) DEFAULT 0.13,
     -- Recommendation
     recommendation      VARCHAR(20) CHECK (recommendation IN ('GO', 'CAUTION', 'NO-GO')),
     suggested_format    VARCHAR(50),
@@ -173,13 +173,15 @@ ORDER BY municipio_id, calculated_at DESC;
 -- ============================================================
 CREATE TABLE IF NOT EXISTS calibration_config (
     id                          SERIAL PRIMARY KEY,
-    name                        VARCHAR(100) DEFAULT 'default',
+    name                        VARCHAR(100) DEFAULT 'real-data-v2',
     -- Factor weights (must sum to 1.0)
-    weight_population           DECIMAL(4, 2) DEFAULT 0.30,
-    weight_mobility             DECIMAL(4, 2) DEFAULT 0.25,
-    weight_commercial           DECIMAL(4, 2) DEFAULT 0.25,
+    -- Calibrated for real government data: INE ENCOVI poverty + Banguat remittances
+    -- drive socioeconomic at the municipio level, justifying a higher weight.
+    weight_population           DECIMAL(4, 2) DEFAULT 0.28,
+    weight_mobility             DECIMAL(4, 2) DEFAULT 0.22,
+    weight_commercial           DECIMAL(4, 2) DEFAULT 0.22,
     weight_competition          DECIMAL(4, 2) DEFAULT 0.15,
-    weight_socioeconomic        DECIMAL(4, 2) DEFAULT 0.05,
+    weight_socioeconomic        DECIMAL(4, 2) DEFAULT 0.13,
     -- Population thresholds per format
     despensa_familiar_min_pop   INTEGER DEFAULT 24000,
     maxi_despensa_min_pop       INTEGER DEFAULT 55000,
@@ -191,8 +193,8 @@ CREATE TABLE IF NOT EXISTS calibration_config (
     updated_at                  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Insert default calibration config
-INSERT INTO calibration_config (name) VALUES ('default')
+-- Insert default calibration config (weights tuned for real government data sources)
+INSERT INTO calibration_config (name) VALUES ('real-data-v2')
 ON CONFLICT DO NOTHING;
 
 -- ============================================================

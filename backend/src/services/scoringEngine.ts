@@ -85,10 +85,10 @@ export async function loadCalibrationConfig(): Promise<CalibrationConfig> {
      FROM calibration_config WHERE is_active = true ORDER BY id DESC LIMIT 1`
   );
   if (result.rows.length === 0) {
-    // Safe defaults if DB row missing
+    // Safe defaults if DB row missing (matches real-data-v2 calibration)
     return {
-      weight_population: 0.30, weight_mobility: 0.25, weight_commercial: 0.25,
-      weight_competition: 0.15, weight_socioeconomic: 0.05,
+      weight_population: 0.28, weight_mobility: 0.22, weight_commercial: 0.22,
+      weight_competition: 0.15, weight_socioeconomic: 0.13,
       despensa_familiar_min_pop: 24000, maxi_despensa_min_pop: 55000,
       mobility_override_threshold: 0.80, commercial_override_threshold: 0.85,
     };
@@ -169,14 +169,20 @@ const DEPT_DENSITY: Record<string, number> = {
 /**
  * MOBILITY SCORE (0–100)
  * Primary: OSM road/transit POI count from poi_cache within 10 km.
- * Secondary: department population density (SEGEPLAN + INE 2018).
+ * Secondary: population density — actual (population/area_km2) when area data
+ *   is available, otherwise falls back to the department-level average from
+ *   DEPT_DENSITY (INE 2018 / SEGEPLAN). Using actual density gives much better
+ *   intra-department differentiation (Guatemala City ≈ 4,800/km² vs. rural
+ *   Guatemala department municipios ≈ 200–600/km²).
  * Fallback: urban flag + commercial presence.
  */
 async function scoreMobility(
   lat: number,
   lng: number,
   isUrban: boolean,
-  department: string | null
+  department: string | null,
+  municipioPop: number,
+  areaKm2: number | null
 ): Promise<number> {
   // 1. OSM road/transit POIs
   const poiResult = await pool.query(
@@ -217,9 +223,13 @@ async function scoreMobility(
     score = clamp((isUrban ? 55 : 30) + Math.min(storeCount * 3, 30));
   }
 
-  // 2. Department density bonus (INE 2018 / SEGEPLAN areas)
-  //    Denser departments have more foot traffic regardless of road POI coverage.
-  const density = department ? (DEPT_DENSITY[department] ?? 0) : 0;
+  // 2. Density bonus — use actual municipio density when area_km2 is seeded,
+  //    otherwise fall back to the department-level average from INE 2018.
+  const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
+  const density = (areaKm2 != null && areaKm2 > 0 && municipioPop > 0)
+    ? municipioPop / areaKm2
+    : deptAvg;
+
   const densityBonus = clamp(piecewise(density, [
     [0,    0],
     [50,   3],
@@ -228,6 +238,8 @@ async function scoreMobility(
     [500, 18],
     [800, 22],
     [1500, 25],
+    [3000, 28],  // dense urban cores (e.g. Guatemala City: ~4,800/km²)
+    [5000, 30],
   ]));
 
   return clamp(score + densityBonus);
@@ -235,7 +247,9 @@ async function scoreMobility(
 
 /**
  * COMMERCIAL DENSITY SCORE (0–100)
- * Primary: bank/pharmacy/market/hardware POIs within 5km.
+ * Primary: bank/pharmacy/market/hardware/ATM POIs within 5km.
+ * ATMs are included because Banrural, BI, and BAC ATMs are densely mapped in
+ * OSM for Guatemala and are strong indicators of formal economic activity.
  * Fallback: competitor count (any formal commerce signals purchasing power).
  */
 async function scoreCommercial(lat: number, lng: number): Promise<number> {
@@ -244,7 +258,7 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
     `SELECT COUNT(*) AS cnt
      FROM poi_cache
      WHERE poi_type IN ('bank','pharmacy','marketplace','market',
-                        'hardware','fuel','supermarket','money_transfer')
+                        'hardware','fuel','supermarket','money_transfer','atm')
        AND ST_DWithin(
          geometry::geography,
          ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
@@ -431,6 +445,14 @@ function recommendFormat(
       reasons.push(`high commercial density (${factors.commercial.toFixed(0)}) signals strong purchasing power`);
       return { format: 'Maxi Despensa', reasoning: reasons.join('; ') };
     }
+    // Socioeconomic override: very low poverty + adequate population supports
+    // the larger format even below the Maxi Despensa population threshold.
+    // Threshold: socioeconomic score ≥ 75 (poverty ≤ ~17%) + pop ≥ 40,000.
+    const socioPct = factors.socioeconomic / 100;
+    if (socioPct >= 0.75 && pop >= 40_000) {
+      reasons.push(`strong purchasing power (socioeconomic score ${factors.socioeconomic.toFixed(0)}) supports Maxi format`);
+      return { format: 'Maxi Despensa', reasoning: reasons.join('; ') };
+    }
     reasons.push(`population ${pop.toLocaleString()} in Despensa Familiar range`);
     return { format: 'Despensa Familiar', reasoning: reasons.join('; ') };
   }
@@ -454,9 +476,9 @@ export async function scorePoint(
 ): Promise<OpportunityScore & { municipio_id?: number; municipio_name?: string }> {
   const cfg = config ?? await loadCalibrationConfig();
 
-  // Find nearest/containing municipio — include real socioeconomic indicators
+  // Find nearest/containing municipio — include socioeconomic + area data
   const municipioResult = await pool.query(
-    `SELECT id, name, department, population, is_urban, poverty_index, remittance_index
+    `SELECT id, name, department, population, is_urban, poverty_index, remittance_index, area_km2
      FROM municipios
      WHERE centroid IS NOT NULL
      ORDER BY centroid <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)
@@ -469,6 +491,7 @@ export async function scorePoint(
   const department      = municipio?.department ?? null;
   const povertyIndex    = municipio?.poverty_index    != null ? parseFloat(municipio.poverty_index)    : null;
   const remittanceIndex = municipio?.remittance_index != null ? parseFloat(municipio.remittance_index) : null;
+  const areaKm2         = municipio?.area_km2         != null ? parseFloat(municipio.area_km2)         : null;
 
   // Population within rings
   const pop3Result = await pool.query(
@@ -489,7 +512,7 @@ export async function scorePoint(
   // Calculate all factor scores
   const [mobilityScore, commercialScore, competitionScore, socioScore] =
     await Promise.all([
-      scoreMobility(lat, lng, isUrban, department),
+      scoreMobility(lat, lng, isUrban, department, pop, areaKm2),
       scoreCommercial(lat, lng),
       scoreCompetition(lat, lng),
       scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex),

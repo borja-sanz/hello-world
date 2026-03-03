@@ -48,6 +48,9 @@ const TAG_TO_TYPE: { test: (tags: Record<string, string>) => boolean; type: stri
                /western.?union|moneygram|remesa|gi\.?go/i.test(t.name ?? ''),
     type: 'money_transfer',
   },
+  // ATMs: Banrural, BI, BAC, and G&T ATMs are widely mapped in OSM and are
+  // strong indicators of formal banking infrastructure and purchasing power.
+  { test: t => t.amenity === 'atm', type: 'atm' },
 ];
 
 function classifyPoi(tags: Record<string, string>): string {
@@ -155,7 +158,7 @@ export async function refreshCommercialPois(): Promise<number> {
   const query = `
 [out:json][timeout:90];
 (
-  node["amenity"~"bank|pharmacy|marketplace|bus_station|fuel|school|hospital|clinic|place_of_worship|money_transfer"](${BBOX});
+  node["amenity"~"bank|pharmacy|marketplace|bus_station|fuel|school|hospital|clinic|place_of_worship|money_transfer|atm"](${BBOX});
   node["shop"~"market|hardware|doityourself"](${BBOX});
   node["highway"="bus_stop"](${BBOX});
   node["name"~"western union|moneygram|remesa|gi go",i](${BBOX});
