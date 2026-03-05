@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
+import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../services/googlePlacesService';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -149,6 +150,60 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
         (SELECT MAX(fetched_at) FROM poi_cache)               AS last_osm_refresh
     `);
     res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Google Places competitor sync ────────────────────────────────────────────
+
+/** GET /api/admin/google-places/chains — list chains that will be searched */
+router.get('/google-places/chains', (_req: Request, res: Response) => {
+  res.json({ chains: COMPETITOR_CHAINS.map(c => ({ chain: c.chain, query: c.query })) });
+});
+
+/** POST /api/admin/google-places/sync — sync all competitor chains from Google Places.
+ *  Body: { api_key: string }  (falls back to GOOGLE_PLACES_API_KEY env var) */
+router.post('/google-places/sync', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const apiKey = (req.body?.api_key as string | undefined)?.trim()
+      || process.env.GOOGLE_PLACES_API_KEY;
+
+    if (!apiKey) {
+      throw new AppError(400, 'Provide api_key in request body or set GOOGLE_PLACES_API_KEY env var');
+    }
+
+    // Respond immediately so the client knows it started; full sync takes ~30s
+    res.json({ message: 'Google Places sync started', status: 'running' });
+
+    // Run async — results logged to console
+    syncAllCompetitors(apiKey).then(results => {
+      const total = results.reduce((s, r) => s + r.inserted, 0);
+      console.log(`[googlePlaces] Sync complete: ${total} competitors inserted across ${results.length} chains`);
+    }).catch(err => {
+      console.error('[googlePlaces] Sync error:', err.message);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/admin/google-places/sync-chain — sync a single chain synchronously.
+ *  Body: { api_key: string, chain: string } */
+router.post('/google-places/sync-chain', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const apiKey = (req.body?.api_key as string | undefined)?.trim()
+      || process.env.GOOGLE_PLACES_API_KEY;
+    const chainName = req.body?.chain as string | undefined;
+
+    if (!apiKey) throw new AppError(400, 'api_key is required');
+    if (!chainName) throw new AppError(400, 'chain is required');
+
+    const entry = COMPETITOR_CHAINS.find(c => c.chain === chainName);
+    if (!entry) throw new AppError(400, `Unknown chain "${chainName}". Call GET /api/admin/google-places/chains for valid options.`);
+
+    const result = await syncCompetitorChain(chainName, entry.query, apiKey);
+    res.json(result);
   } catch (err) {
     next(err);
   }

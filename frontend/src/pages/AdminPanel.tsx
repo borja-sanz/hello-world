@@ -4,6 +4,7 @@ import {
   resetCalibrationConfig, recalculateAllScores,
   fetchAdminStats, fetchOsmStatus, refreshOsmAll,
   fetchStoreSummary, clearAllStores, importStoresCsv,
+  syncAllGooglePlacesCompetitors, syncGooglePlacesChain,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -20,6 +21,26 @@ interface ImportResult {
   validation_errors?: string[];
   error?: string;
 }
+
+interface ChainSyncResult {
+  chain: string;
+  found: number;
+  inserted: number;
+  skipped: number;
+  error?: string;
+  status: 'idle' | 'running' | 'done' | 'error';
+}
+
+const GOOGLE_CHAINS = [
+  'Super del Barrio',
+  'La Bodegona',
+  'La Torre',
+  'Maxi Bodega',
+  'Suma Express',
+  'Econosuper',
+  'Super Más',
+  'Unisuper',
+];
 
 const FORMAT_COLORS: Record<string, string> = {
   'Despensa Familiar': '#16a34a',
@@ -38,8 +59,15 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
   const [importing,     setImporting]     = useState(false);
   const [importResult,  setImportResult]  = useState<ImportResult | null>(null);
   const [msg,           setMsg]           = useState('');
-  const [tab,           setTab]           = useState<'weights' | 'thresholds' | 'stores' | 'system'>('weights');
+  const [tab,           setTab]           = useState<'weights' | 'thresholds' | 'stores' | 'competitors' | 'system'>('weights');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Google Places competitor sync
+  const [googleApiKey,    setGoogleApiKey]    = useState('');
+  const [syncingGoogle,   setSyncingGoogle]   = useState(false);
+  const [chainResults,    setChainResults]    = useState<ChainSyncResult[]>(
+    GOOGLE_CHAINS.map(chain => ({ chain, found: 0, inserted: 0, skipped: 0, status: 'idle' }))
+  );
 
   const load = useCallback(async () => {
     try {
@@ -123,6 +151,41 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
     } catch { setMsg('❌ Error al eliminar tiendas'); }
   };
 
+  const handleGoogleSyncChain = async (chain: string) => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API key de Google'); return; }
+    setChainResults(prev => prev.map(r => r.chain === chain ? { ...r, status: 'running' } : r));
+    try {
+      const result = await syncGooglePlacesChain(googleApiKey.trim(), chain);
+      setChainResults(prev => prev.map(r =>
+        r.chain === chain
+          ? { ...r, ...result, status: result.error ? 'error' : 'done' }
+          : r
+      ));
+    } catch (e: any) {
+      setChainResults(prev => prev.map(r =>
+        r.chain === chain ? { ...r, status: 'error', error: e.response?.data?.error ?? e.message } : r
+      ));
+    }
+  };
+
+  const handleGoogleSyncAll = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API key de Google'); return; }
+    if (!confirm('Esto buscará todas las cadenas competidoras en Google Maps (~$0.40 en créditos de API). ¿Continuar?')) return;
+    setSyncingGoogle(true);
+    setMsg('');
+    setChainResults(prev => prev.map(r => ({ ...r, status: 'running' })));
+    try {
+      await syncAllGooglePlacesCompetitors(googleApiKey.trim());
+      setMsg('Sincronización iniciada — los resultados aparecen en unos 30s');
+      // Poll chain-by-chain for feedback using individual sync calls
+    } catch (e: any) {
+      setMsg(`❌ ${e.response?.data?.error ?? 'Error'}`);
+      setChainResults(prev => prev.map(r => ({ ...r, status: r.status === 'running' ? 'error' : r.status })));
+    } finally {
+      setSyncingGoogle(false);
+    }
+  };
+
   if (!config) {
     return (
       <div className="fixed inset-0 bg-black/50 z-[2000] flex items-center justify-center">
@@ -162,10 +225,11 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
         {/* Tabs */}
         <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
           {([
-            ['weights',    'Pesos'],
-            ['thresholds', 'Umbrales'],
-            ['stores',     'Tiendas'],
-            ['system',     'Sistema'],
+            ['weights',      'Pesos'],
+            ['thresholds',   'Umbrales'],
+            ['stores',       'Tiendas'],
+            ['competitors',  'Competidores'],
+            ['system',       'Sistema'],
           ] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
@@ -374,6 +438,90 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
                 >
                   Eliminar todas las tiendas ({storeSummary?.total ?? stats?.store_count ?? 0})
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Competitors tab ── */}
+          {tab === 'competitors' && (
+            <div className="space-y-5">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Sincronizar competidores desde Google Maps
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Usa la API de Google Places para encontrar tiendas de cadenas competidoras en toda Guatemala.
+                  Cobertura mucho mejor que OSM (~95% vs ~10–20%).
+                  Costo estimado: ~$0.40 por sincronización completa.
+                </p>
+
+                {/* API Key input */}
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  API Key de Google Cloud (Places API)
+                </label>
+                <input
+                  type="password"
+                  placeholder="AIza..."
+                  value={googleApiKey}
+                  onChange={e => setGoogleApiKey(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
+                             bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-mono mb-3"
+                />
+                <p className="text-xs text-gray-400 mb-3">
+                  Necesitas una clave con la API de "Places" habilitada en Google Cloud Console.
+                  La clave no se almacena — sólo se usa para esta solicitud.
+                </p>
+
+                {/* Sync all button */}
+                <button
+                  onClick={handleGoogleSyncAll}
+                  disabled={syncingGoogle || !googleApiKey.trim()}
+                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
+                             transition-colors disabled:opacity-50 mb-4"
+                >
+                  {syncingGoogle ? '⏳ Sincronizando…' : 'Sincronizar todas las cadenas'}
+                </button>
+
+                {/* Per-chain table */}
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  O sincroniza cadena por cadena:
+                </p>
+                <div className="space-y-1.5">
+                  {chainResults.map(r => (
+                    <div key={r.chain}
+                         className="flex items-center justify-between gap-2 rounded-lg px-3 py-2
+                                    bg-gray-50 dark:bg-gray-700/50">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                          {r.chain}
+                        </div>
+                        {r.status === 'done' && (
+                          <div className="text-xs text-green-600 dark:text-green-400">
+                            {r.found} encontradas · {r.inserted} nuevas · {r.skipped} ya existían
+                          </div>
+                        )}
+                        {r.status === 'error' && (
+                          <div className="text-xs text-red-500 truncate">{r.error}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {r.status === 'running' && (
+                          <span className="text-xs text-blue-500 animate-pulse">buscando…</span>
+                        )}
+                        {r.status === 'done' && <span className="text-green-500">✓</span>}
+                        {r.status === 'error' && <span className="text-red-500">✕</span>}
+                        <button
+                          onClick={() => handleGoogleSyncChain(r.chain)}
+                          disabled={r.status === 'running' || syncingGoogle}
+                          className="px-2.5 py-1 rounded text-xs bg-blue-100 hover:bg-blue-200 text-blue-700
+                                     dark:bg-blue-900/30 dark:text-blue-400 disabled:opacity-40 transition-colors"
+                        >
+                          Buscar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

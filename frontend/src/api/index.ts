@@ -138,6 +138,23 @@ export const fetchAdminStats = async () => {
   return data;
 };
 
+// ─── Google Places ────────────────────────────────────────────────────────────
+
+export const fetchGooglePlacesChains = async () => {
+  const { data } = await api.get('/api/admin/google-places/chains');
+  return data as { chains: { chain: string; query: string }[] };
+};
+
+export const syncAllGooglePlacesCompetitors = async (apiKey: string) => {
+  const { data } = await api.post('/api/admin/google-places/sync', { api_key: apiKey });
+  return data as { message: string; status: string };
+};
+
+export const syncGooglePlacesChain = async (apiKey: string, chain: string) => {
+  const { data } = await api.post('/api/admin/google-places/sync-chain', { api_key: apiKey, chain });
+  return data as { chain: string; found: number; inserted: number; skipped: number; error?: string };
+};
+
 // ─── OSM ─────────────────────────────────────────────────────────────────────
 
 export const fetchOsmStatus = async () => {
