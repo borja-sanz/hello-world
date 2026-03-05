@@ -70,16 +70,16 @@ router.put('/config', async (req: Request, res: Response, next: NextFunction) =>
   }
 });
 
-/** POST /api/admin/config/reset — reset to factory defaults */
+/** POST /api/admin/config/reset — reset to real-data-v2 calibrated defaults */
 router.post('/config/reset', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await pool.query(
       `UPDATE calibration_config SET
-         weight_population = 0.30, weight_mobility = 0.25, weight_commercial = 0.25,
-         weight_competition = 0.15, weight_socioeconomic = 0.05,
+         weight_population = 0.28, weight_mobility = 0.22, weight_commercial = 0.22,
+         weight_competition = 0.15, weight_socioeconomic = 0.13,
          despensa_familiar_min_pop = 24000, maxi_despensa_min_pop = 55000,
          mobility_override_threshold = 0.80, commercial_override_threshold = 0.85,
-         updated_at = NOW()
+         name = 'real-data-v2', updated_at = NOW()
        WHERE is_active = true
        RETURNING *`
     );
@@ -95,6 +95,38 @@ router.post('/recalculate', async (_req: Request, res: Response, next: NextFunct
     res.json({ message: 'Recalculation started — check /api/scoring/municipios in ~60s', status: 'running' });
     const count = await scoreAllMunicipios();
     console.log(`Admin recalculate complete: ${count} municipios`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/admin/stores/summary — store counts by format */
+router.get('/stores/summary', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await pool.query(
+      `SELECT format,
+              COUNT(*)                                      AS total,
+              COUNT(*) FILTER (WHERE status = 'open')      AS open,
+              COUNT(*) FILTER (WHERE status = 'planned')   AS planned,
+              COUNT(*) FILTER (WHERE status = 'closed')    AS closed
+       FROM stores GROUP BY format ORDER BY total DESC`
+    );
+    const grand = await pool.query(`SELECT COUNT(*) AS total FROM stores`);
+    res.json({ formats: result.rows, total: parseInt(grand.rows[0].total) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** DELETE /api/admin/stores/all — remove all stores to allow re-import of real network.
+ *  Body: { confirm: "BORRAR" } required to prevent accidental calls. */
+router.delete('/stores/all', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.body?.confirm !== 'BORRAR') {
+      throw new AppError(400, 'Send { "confirm": "BORRAR" } to confirm');
+    }
+    const result = await pool.query('DELETE FROM stores RETURNING id');
+    res.json({ deleted: result.rowCount });
   } catch (err) {
     next(err);
   }

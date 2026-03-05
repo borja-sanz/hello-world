@@ -37,6 +37,16 @@ export const importStoresCsv = async (file: File) => {
   return data;
 };
 
+export const fetchStoreSummary = async () => {
+  const { data } = await api.get('/api/admin/stores/summary');
+  return data as { formats: { format: string; total: string; open: string; planned: string; closed: string }[]; total: number };
+};
+
+export const clearAllStores = async () => {
+  const { data } = await api.delete('/api/admin/stores/all', { data: { confirm: 'BORRAR' } });
+  return data as { deleted: number };
+};
+
 export const tagStorePerformance = async (
   id: number, performance: string
 ) => {
