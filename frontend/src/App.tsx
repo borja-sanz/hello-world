@@ -36,8 +36,10 @@ const App: React.FC = () => {
   const [showAdmin,    setShowAdmin]    = useState(false);
   const [error,        setError]        = useState<string | null>(null);
 
+  const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
+
   const [layers, setLayers] = useState<LayerState>({
-    stores: true, competitors: true, opportunities: true, heatmap: false,
+    stores: true, competitors: true, opportunities: true, heatmap: true,
   });
 
   const [filters, setFilters] = useState<FilterState>({
@@ -131,12 +133,14 @@ const App: React.FC = () => {
     setLayers(l => ({ ...l, [key]: !l[key] }));
   }, []);
 
-  // ── Opportunity card click → pan map ─────────────────────────────────────
+  // ── Opportunity card click → fly map to municipio (no trade area analysis) ──
   const handleOppClick = useCallback((opp: OpportunityScore) => {
     if (opp.centroid) {
-      handleMapClick(opp.centroid.lat as unknown as number, opp.centroid.lng as unknown as number);
+      const lat = opp.centroid.lat as unknown as number;
+      const lng = opp.centroid.lng as unknown as number;
+      setFlyToTarget({ lat, lng, zoom: 11 });
     }
-  }, [handleMapClick]);
+  }, []);
 
   return (
     <div className="h-full flex flex-col">
@@ -198,6 +202,7 @@ const App: React.FC = () => {
             tradeArea={tradeArea}
             onMapClick={handleMapClick}
             loading={mapLoading}
+            flyToTarget={flyToTarget}
           />
         </div>
 

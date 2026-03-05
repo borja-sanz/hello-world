@@ -39,6 +39,24 @@ const FilterControls: React.FC<Props> = ({
             </button>
           ))}
         </div>
+
+        {/* Heatmap toggle — shows large transparent score zones instead of dots */}
+        <button
+          onClick={() => onLayerToggle('heatmap')}
+          className={`w-full text-xs py-1.5 px-3 rounded-md font-medium transition-colors border ${
+            layers.heatmap
+              ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
+              : 'bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600'
+          }`}
+          title="Muestra zonas de score como polígonos translúcidos en lugar de puntos"
+        >
+          🗺 {layers.heatmap ? 'Mapa de zonas (activo)' : 'Modo mapa de zonas'}
+        </button>
+        {layers.heatmap && (
+          <p className="text-[10px] text-indigo-500 dark:text-indigo-400 -mt-2 text-center">
+            Verde = GO · Amarillo = CAUTION · Rojo = NO-GO
+          </p>
+        )}
       </div>
 
       {/* Population filter */}

@@ -56,12 +56,13 @@ interface MapViewProps {
   tradeArea:     TradeAreaAnalysis | null;
   onMapClick:    (lat: number, lng: number) => void;
   loading:       boolean;
+  flyToTarget?:  { lat: number; lng: number; zoom?: number } | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const MapView: React.FC<MapViewProps> = ({
-  stores, competitors, opportunities, layers, tradeArea, onMapClick, loading,
+  stores, competitors, opportunities, layers, tradeArea, onMapClick, loading, flyToTarget,
 }) => {
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
@@ -164,33 +165,68 @@ const MapView: React.FC<MapViewProps> = ({
     group.clearLayers();
     if (!layers.opportunities) return;
 
+    const useHeatmap = layers.heatmap;
+
     for (const opp of opportunities) {
       if (!opp.centroid) continue;
       const { lat, lng } = opp.centroid as any;
       if (!lat || !lng) continue;
 
       const color = SCORE_COLORS[opp.recommendation] ?? '#6b7280';
-      const size  = Math.max(8, Math.min(22, Math.round(opp.score / 6)));
-      const marker = L.circleMarker([lat, lng], {
-        radius:      size,
-        fillColor:   color,
-        color:       'white',
-        weight:      1.5,
-        opacity:     0.9,
-        fillOpacity: 0.7,
-      });
-      marker.bindPopup(`
-        <div class="text-sm">
-          <strong>${opp.municipio_name}</strong><br/>
-          Score: <strong style="color:${color}">${opp.score.toFixed(0)}/100</strong>
-          (${opp.recommendation})<br/>
-          Pop: ${(opp.population ?? 0).toLocaleString()}<br/>
-          ${opp.suggested_format ? `Formato: ${opp.suggested_format}` : ''}
+      const popupHtml = `
+        <div class="text-sm" style="min-width:160px">
+          <strong>${opp.municipio_name}</strong>
+          <div style="color:#6b7280;font-size:11px">${opp.department}</div>
+          <div style="margin-top:4px">
+            Score: <strong style="color:${color}">${opp.score.toFixed(0)}/100</strong>
+            <span style="font-size:11px;color:#6b7280"> (${opp.recommendation})</span>
+          </div>
+          <div style="font-size:11px;margin-top:2px">
+            Población: ${(opp.population ?? 0).toLocaleString()}<br/>
+            ${opp.suggested_format ? `Formato sugerido: <strong>${opp.suggested_format}</strong><br/>` : ''}
+            ${opp.nearest_store_km !== null ? `Tienda más cercana: ${opp.nearest_store_km} km` : 'Sin cobertura propia'}
+          </div>
         </div>
-      `);
-      group.addLayer(marker);
+      `;
+
+      if (useHeatmap) {
+        // Large filled circle scaled to approximate municipio area (~8km radius baseline)
+        // Guatemala avg municipio ≈ 324 km², radius ≈ sqrt(324/π) ≈ 10km
+        const radiusM = 9000; // 9km — roughly covers an average municipio
+        const circle = L.circle([lat, lng], {
+          radius:      radiusM,
+          fillColor:   color,
+          color:       color,
+          weight:      1,
+          opacity:     0.5,
+          fillOpacity: 0.22,
+        });
+        circle.bindPopup(popupHtml);
+        group.addLayer(circle);
+      } else {
+        // Dot mode: score-sized circle marker
+        const size = Math.max(6, Math.min(20, Math.round(opp.score / 6)));
+        const marker = L.circleMarker([lat, lng], {
+          radius:      size,
+          fillColor:   color,
+          color:       'white',
+          weight:      1.5,
+          opacity:     0.9,
+          fillOpacity: 0.85,
+        });
+        marker.bindPopup(popupHtml);
+        group.addLayer(marker);
+      }
     }
-  }, [opportunities, layers.opportunities]);
+  }, [opportunities, layers.opportunities, layers.heatmap]);
+
+  // ── flyToTarget: pan/zoom map when a sidebar card is clicked ─────────────
+  useEffect(() => {
+    if (!flyToTarget || !mapRef.current) return;
+    mapRef.current.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom ?? 11, {
+      animate: true, duration: 0.8,
+    });
+  }, [flyToTarget]);
 
   // ── Render trade area rings ───────────────────────────────────────────────
   useEffect(() => {
