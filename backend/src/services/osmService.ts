@@ -34,6 +34,14 @@ const TAG_TO_TYPE: { test: (tags: Record<string, string>) => boolean; type: stri
   { test: t => t.amenity === 'university' || t.amenity === 'college', type: 'university' },
   { test: t => t.amenity === 'hospital',                  type: 'hospital' },
   { test: t => t.amenity === 'clinic' || t.amenity === 'health_centre', type: 'clinic' },
+  // LDS church: must come before generic place_of_worship so meetinghouses are
+  // classified as 'lds_church' rather than the broader category. Used as a
+  // community-threshold leading indicator in the socioeconomic score.
+  {
+    test: t => t.denomination === 'latter_day_saints' ||
+               /santos de los.ltimos d.as|jesucristo de los santos/i.test(t.name ?? ''),
+    type: 'lds_church',
+  },
   { test: t => t.amenity === 'place_of_worship',          type: 'place_of_worship' },
   { test: t => t.amenity === 'bus_station',               type: 'bus_station' },
   { test: t => t.highway === 'bus_stop',                  type: 'bus_stop' },
@@ -162,6 +170,8 @@ export async function refreshCommercialPois(): Promise<number> {
   node["shop"~"market|hardware|doityourself"](${BBOX});
   node["highway"="bus_stop"](${BBOX});
   node["name"~"western union|moneygram|remesa|gi go",i](${BBOX});
+  node["denomination"="latter_day_saints"](${BBOX});
+  way["denomination"="latter_day_saints"](${BBOX});
 );
 out center;`.trim();
 

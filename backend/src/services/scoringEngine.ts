@@ -376,21 +376,35 @@ async function scoreSocioeconomic(
   povertyIndex: number | null,
   remittanceIndex: number | null
 ): Promise<number> {
-  // OSM social infrastructure POIs (used as primary signal if no real data,
-  // or as a small amenity bonus when real data is present)
-  const poiResult = await pool.query(
-    `SELECT COUNT(*) AS cnt
-     FROM poi_cache
-     WHERE poi_type IN ('school','university','hospital','clinic',
-                        'health_centre','place_of_worship','pharmacy')
-       AND ST_DWithin(
-         geometry::geography,
-         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-         5000
-       )`,
-    [lat, lng]
-  );
-  const poiCnt = parseInt(poiResult.rows[0]?.cnt ?? '0');
+  const geo = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`;
+
+  // Run both POI queries in parallel for efficiency
+  const [poiResult, ldsResult] = await Promise.all([
+    // OSM social infrastructure: schools, hospitals, churches within 5km.
+    // Used as quality-of-life amenity bonus (real data) or primary proxy (fallback).
+    pool.query(
+      `SELECT COUNT(*) AS cnt FROM poi_cache
+       WHERE poi_type IN ('school','university','hospital','clinic',
+                          'health_centre','place_of_worship','pharmacy')
+         AND ST_DWithin(geometry::geography, ${geo}, 5000)`,
+      [lat, lng]
+    ),
+    // LDS church presence: The Church of Jesus Christ of Latter-day Saints builds
+    // permanent meetinghouses (~$500k+ investment) only after professional demographic
+    // analysis confirms sufficient D/C-segment household density and growth trajectory.
+    // A meetinghouse within 5km is third-party validation that this community has
+    // crossed the critical mass threshold for Despensa Familiar's core market.
+    // Signal is binary — presence matters, count within range doesn't compound.
+    pool.query(
+      `SELECT COUNT(*) AS cnt FROM poi_cache
+       WHERE poi_type = 'lds_church'
+         AND ST_DWithin(geometry::geography, ${geo}, 5000)`,
+      [lat, lng]
+    ),
+  ]);
+
+  const poiCnt  = parseInt(poiResult.rows[0]?.cnt ?? '0');
+  const ldsBonus = parseInt(ldsResult.rows[0]?.cnt ?? '0') > 0 ? 4 : 0;
 
   if (povertyIndex !== null) {
     // ── Real data path ────────────────────────────────────────────────────────
@@ -406,16 +420,16 @@ async function scoreSocioeconomic(
       [0,  0], [3, 3], [8, 6], [20, 10],
     ]));
 
-    return clamp(purchasingPower + remittanceBonus + amenityBonus);
+    return clamp(purchasingPower + remittanceBonus + amenityBonus + ldsBonus);
   }
 
   // ── Fallback: POI-proxy path ─────────────────────────────────────────────
   if (poiCnt > 0) {
     return clamp(piecewise(poiCnt, [
       [0,  20], [3, 40], [8, 60], [15, 75], [30, 90], [60, 100],
-    ]));
+    ]) + ldsBonus);
   }
-  return isUrban ? 55 : 35;
+  return clamp((isUrban ? 55 : 35) + ldsBonus);
 }
 
 // ─── Format recommendation ────────────────────────────────────────────────────
