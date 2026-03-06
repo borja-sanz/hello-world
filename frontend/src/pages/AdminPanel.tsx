@@ -7,6 +7,7 @@ import {
   fetchStoreSummary, clearAllStores, importStoresCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
   seedGuatemalaZones,
+  refreshNtlSettlements,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -189,6 +190,16 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setMsg(`✅ ${res.message}`);
     } catch (e: any) {
       setMsg(`❌ ${e.response?.data?.error ?? 'Error al sembrar zonas'}`);
+    }
+  };
+
+  const handleRefreshNtlSettlements = async () => {
+    try {
+      setMsg('⏳ Actualizando asentamientos nacionales desde OpenStreetMap…');
+      const res = await refreshNtlSettlements();
+      setMsg(`✅ ${res.message}`);
+    } catch (e: any) {
+      setMsg(`❌ ${e.response?.data?.error ?? 'Error al actualizar asentamientos'}`);
     }
   };
 
@@ -697,6 +708,13 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     className="w-full py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium transition-colors text-left"
                   >
                     Mercados informales (~1 min, ~$0.37)
+                  </button>
+                  <button
+                    onClick={handleRefreshNtlSettlements}
+                    className="w-full py-2 px-3 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium transition-colors text-left"
+                    title="Descarga todos los lugares poblados de Guatemala desde OpenStreetMap (aldeas, caseríos, pueblos) para los 254 municipios. Preserva las zonas de Ciudad de Guatemala."
+                  >
+                    Asentamientos nacionales — todos los municipios (OSM)
                   </button>
                   <button
                     onClick={handleSeedGuatemalaZones}

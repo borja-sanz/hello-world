@@ -62,6 +62,11 @@ export const seedGuatemalaZones = async () => {
   return data as { inserted: number; message: string };
 };
 
+export const refreshNtlSettlements = async () => {
+  const { data } = await api.post('/api/admin/refresh-ntl-settlements');
+  return data as { inserted: number; total: number; source: string; message: string };
+};
+
 export const tagStorePerformance = async (
   id: number, performance: string
 ) => {

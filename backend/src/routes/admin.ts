@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as fs   from 'fs';
 import * as path from 'path';
+import axios from 'axios';
 import { fromFile } from 'geotiff';
 import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
@@ -266,6 +267,198 @@ router.post('/fix-store-formats', async (_req: Request, res: Response, next: Nex
       fixed: result.rowCount ?? 0,
       message: `${result.rowCount ?? 0} formato(s) de tiendas corregido(s).`,
       stores: result.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const OVERPASS_URL = process.env.OVERPASS_API_URL || 'https://overpass-api.de/api/interpreter';
+const NTL_CALIB   = 756; // 180 hh/nW × 4.2 persons/hh (INE 2018)
+
+// Fallback places when Overpass is unreachable — covers all 22 departments
+// with enough towns that every municipio gets at least one sub-point.
+const NTL_FALLBACK_PLACES = [
+  // Guatemala dept
+  { name: 'Mixco',                lat: 14.6350, lng: -90.5950, pop: 473080 },
+  { name: 'Villa Nueva',          lat: 14.5286, lng: -90.5897, pop: 618397 },
+  { name: 'San Juan Sacatepéquez',lat: 14.7200, lng: -90.6450, pop: 248019 },
+  { name: 'Chinautla',            lat: 14.7000, lng: -90.4900, pop: 141836 },
+  { name: 'Amatitlán',            lat: 14.4800, lng: -90.6200, pop:  98169 },
+  { name: 'San Miguel Petapa',    lat: 14.5030, lng: -90.5550, pop: 185854 },
+  { name: 'Villa Canales',        lat: 14.4800, lng: -90.5300, pop: 162404 },
+  { name: 'Palencia',             lat: 14.6700, lng: -90.3700, pop:  66713 },
+  { name: 'Santa Catarina Pinula',lat: 14.5700, lng: -90.4800, pop: 116153 },
+  // Sacatepéquez
+  { name: 'Antigua Guatemala',    lat: 14.5582, lng: -90.7341, pop:  45669 },
+  { name: 'Ciudad Vieja',         lat: 14.5180, lng: -90.7670, pop:  39695 },
+  { name: 'San Lucas Sacatepéquez',lat:14.6100, lng: -90.6600, pop:  28000 },
+  // Chimaltenango
+  { name: 'Chimaltenango',        lat: 14.6619, lng: -90.8211, pop: 121105 },
+  { name: 'San Andrés Itzapa',    lat: 14.6200, lng: -90.8600, pop:  32000 },
+  { name: 'Patzún',               lat: 14.6800, lng: -91.0000, pop:  51000 },
+  { name: 'Tecpán Guatemala',     lat: 14.7600, lng: -90.9900, pop:  76000 },
+  // Escuintla
+  { name: 'Escuintla',            lat: 14.3011, lng: -90.7870, pop: 148809 },
+  { name: 'Santa Lucía Cotzumal.',lat: 14.3310, lng: -90.7230, pop:  77000 },
+  { name: 'Puerto San José',      lat: 13.9270, lng: -90.8290, pop:  42000 },
+  { name: 'Palín',                lat: 14.4058, lng: -90.6965, pop:  55597 },
+  // Santa Rosa
+  { name: 'Barberena',            lat: 14.3150, lng: -90.3380, pop:  46450 },
+  { name: 'Cuilapa',              lat: 14.2780, lng: -90.2990, pop:  45000 },
+  { name: 'Chiquimulilla',        lat: 14.0870, lng: -90.3810, pop:  46000 },
+  // Sololá
+  { name: 'Sololá',               lat: 14.7760, lng: -91.1840, pop:  88749 },
+  { name: 'Panajachel',           lat: 14.7400, lng: -91.1581, pop:  18000 },
+  { name: 'San Pedro La Laguna',  lat: 14.6980, lng: -91.2700, pop:  15000 },
+  // Totonicapán
+  { name: 'Totonicapán',          lat: 14.9128, lng: -91.3600, pop:  90839 },
+  { name: 'San Cristóbal T.',     lat: 14.9650, lng: -91.4400, pop:  42000 },
+  // Quetzaltenango
+  { name: 'Quetzaltenango',       lat: 14.8434, lng: -91.5179, pop: 180706 },
+  { name: 'Coatepeque',           lat: 14.7030, lng: -91.8570, pop: 111586 },
+  { name: 'Cantel',               lat: 14.8200, lng: -91.4700, pop:  30000 },
+  { name: 'Almolonga',            lat: 14.8060, lng: -91.4920, pop:  14000 },
+  // San Marcos
+  { name: 'San Marcos',           lat: 14.9601, lng: -91.7959, pop:  54000 },
+  { name: 'Malacatán',            lat: 15.0190, lng: -92.0560, pop: 101635 },
+  { name: 'Ayutla (Tecún Umán)',  lat: 14.9290, lng: -92.1410, pop:  55000 },
+  { name: 'San Pedro Sacatepéq.', lat: 14.9700, lng: -91.7830, pop:  31000 },
+  // Huehuetenango
+  { name: 'Huehuetenango',        lat: 15.3207, lng: -91.4703, pop: 102801 },
+  { name: 'La Democracia',        lat: 15.3300, lng: -91.7200, pop:  30000 },
+  { name: 'Santa Eulalia',        lat: 15.7300, lng: -91.4700, pop:  37000 },
+  { name: 'Jacaltenango',         lat: 15.6600, lng: -91.7300, pop:  34000 },
+  { name: 'Barillas',             lat: 15.7960, lng: -91.3110, pop:  83000 },
+  // Quiché
+  { name: 'Santa Cruz del Quiché',lat: 15.0325, lng: -91.1474, pop: 163954 },
+  { name: 'Chichicastenango',     lat: 14.9442, lng: -91.1132, pop: 149028 },
+  { name: 'Nebaj',                lat: 15.4047, lng: -91.1374, pop:  67000 },
+  { name: 'Joyabaj',              lat: 14.9900, lng: -90.8000, pop:  59000 },
+  { name: 'Uspantán',             lat: 15.3480, lng: -90.8660, pop:  47000 },
+  // Baja Verapaz
+  { name: 'Salamá',               lat: 15.1041, lng: -90.3153, pop:  58033 },
+  { name: 'Rabinal',              lat: 15.0890, lng: -90.4940, pop:  32000 },
+  // Alta Verapaz
+  { name: 'Cobán',                lat: 15.4695, lng: -90.3790, pop: 255629 },
+  { name: 'Chisec',               lat: 15.8150, lng: -90.2990, pop:  80000 },
+  { name: 'Fray Bartolomé',       lat: 15.8410, lng: -89.8740, pop:  64000 },
+  { name: 'Tactic',               lat: 15.3180, lng: -90.3550, pop:  30000 },
+  // Petén
+  { name: 'Flores',               lat: 16.9292, lng: -89.8821, pop:  25000 },
+  { name: 'Santa Elena Petén',    lat: 16.9200, lng: -89.8900, pop:  45000 },
+  { name: 'San Benito',           lat: 16.9200, lng: -89.9100, pop:  42000 },
+  { name: 'Poptún',               lat: 16.3230, lng: -89.4260, pop:  45000 },
+  { name: 'Sayaxché',             lat: 16.5280, lng: -90.1810, pop:  68000 },
+  // Izabal
+  { name: 'Puerto Barrios',       lat: 15.7176, lng: -88.5974, pop:  88028 },
+  { name: 'Morales',              lat: 15.4750, lng: -88.8230, pop:  96000 },
+  { name: 'Livingston',           lat: 15.8300, lng: -88.7500, pop:  46000 },
+  // Zacapa
+  { name: 'Zacapa',               lat: 14.9720, lng: -89.5270, pop:  75938 },
+  { name: 'Gualán',               lat: 15.1100, lng: -89.3600, pop:  37000 },
+  { name: 'Río Hondo',            lat: 15.0040, lng: -89.5800, pop:  21000 },
+  // Chiquimula
+  { name: 'Chiquimula',           lat: 14.7990, lng: -89.5460, pop: 113066 },
+  { name: 'Esquipulas',           lat: 14.5680, lng: -89.3490, pop:  42000 },
+  { name: 'Jocotán',              lat: 14.8270, lng: -89.3780, pop:  47000 },
+  // Jalapa
+  { name: 'Jalapa',               lat: 14.6340, lng: -89.9870, pop:  98023 },
+  { name: 'San Pedro Pinula',     lat: 14.6700, lng: -89.8600, pop:  43000 },
+  // Jutiapa
+  { name: 'Jutiapa',              lat: 14.2895, lng: -89.8985, pop: 105579 },
+  { name: 'Asunción Mita',        lat: 14.3370, lng: -89.7130, pop:  37000 },
+  { name: 'Moyuta',               lat: 14.0310, lng: -89.9870, pop:  27000 },
+  // Retalhuleu
+  { name: 'Retalhuleu',           lat: 14.5344, lng: -91.6768, pop:  96342 },
+  { name: 'Champerico',           lat: 14.2980, lng: -91.9160, pop:  32000 },
+  // Suchitepéquez
+  { name: 'Mazatenango',          lat: 14.5364, lng: -91.5030, pop: 108113 },
+  { name: 'Samayac',              lat: 14.5970, lng: -91.4700, pop:  20000 },
+  { name: 'Patulul',              lat: 14.4230, lng: -91.1680, pop:  28000 },
+];
+
+/**
+ * POST /api/admin/refresh-ntl-settlements
+ *
+ * Re-fetches all populated places from OpenStreetMap (Overpass API) and upserts
+ * them into ntl_settlements for all 254 municipios. Records tagged
+ * ntl_source='admin_zones' (e.g. Guatemala City zones) are preserved.
+ *
+ * Uses a 100-place static fallback when Overpass is unreachable.
+ * Safe to run multiple times.
+ */
+router.post('/refresh-ntl-settlements', async (_req: Request, res: Response, next: NextFunction) => {
+  interface OsmPlace { name: string; lat: number; lng: number; pop: number; }
+
+  async function fetchOsmPlaces(): Promise<OsmPlace[]> {
+    const query = `
+[out:json][timeout:90];
+area["name"="Guatemala"]["boundary"="administrative"]["admin_level"="2"]->.gt;
+(
+  node["place"~"^(city|town|village|suburb|neighbourhood|hamlet)$"](area.gt);
+);
+out body;`.trim();
+
+    const resp = await axios.post(
+      OVERPASS_URL,
+      `data=${encodeURIComponent(query)}`,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 95_000 }
+    );
+    const FALLBACKS: Record<string, number> = {
+      city: 50000, town: 15000, village: 3000,
+      suburb: 8000, neighbourhood: 4000, hamlet: 800,
+    };
+    const out: OsmPlace[] = [];
+    for (const el of (resp.data.elements || []) as Array<{
+      lat?: number; lon?: number; tags?: Record<string, string>
+    }>) {
+      if (!el.lat || !el.lon || !el.tags?.name) continue;
+      const tagPop = parseInt(el.tags.population ?? '0');
+      const pop    = tagPop > 0 ? tagPop : (FALLBACKS[el.tags.place ?? ''] ?? 1000);
+      if (pop < 500) continue;
+      out.push({ name: el.tags.name, lat: el.lat, lng: el.lon, pop });
+    }
+    return out;
+  }
+
+  try {
+    let places: OsmPlace[];
+    let source: string;
+    try {
+      places = await fetchOsmPlaces();
+      source = 'osm_places';
+    } catch {
+      places = NTL_FALLBACK_PLACES;
+      source = 'synthetic';
+    }
+
+    // Remove non-admin_zones records so we can re-insert cleanly
+    await pool.query(`DELETE FROM ntl_settlements WHERE ntl_source != 'admin_zones'`);
+
+    let inserted = 0;
+    for (const p of places) {
+      const radiance = Math.round((p.pop / NTL_CALIB) * 1000) / 1000;
+      await pool.query(
+        `INSERT INTO ntl_settlements (name, municipio_id, lat, lng, radiance_ntl, estimated_pop, ntl_source)
+         VALUES (
+           $1,
+           (SELECT id FROM municipios
+            ORDER BY ST_Distance(centroid::geography, ST_SetSRID(ST_MakePoint($3,$2),4326)::geography)
+            LIMIT 1),
+           $2, $3, $4, $5, $6
+         )`,
+        [p.name, p.lat, p.lng, radiance, Math.round(p.pop), source]
+      );
+      inserted++;
+    }
+
+    const { rows } = await pool.query(`SELECT COUNT(*) AS c FROM ntl_settlements`);
+    res.json({
+      inserted,
+      total: parseInt(rows[0].c),
+      source,
+      message: `${inserted} asentamientos actualizados (fuente: ${source === 'osm_places' ? 'OpenStreetMap live' : 'fallback estático'}). Total en DB: ${rows[0].c}.`,
     });
   } catch (err) {
     next(err);
