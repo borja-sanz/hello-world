@@ -37,6 +37,13 @@ export const importStoresCsv = async (file: File) => {
   return data;
 };
 
+export const importCompetitorsCsv = async (file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await api.post('/api/competitors/import', form);
+  return data;
+};
+
 export const fetchStoreSummary = async () => {
   const { data } = await api.get('/api/admin/stores/summary');
   return data as { formats: { format: string; total: string; open: string; planned: string; closed: string }[]; total: number };

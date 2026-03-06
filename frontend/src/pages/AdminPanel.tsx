@@ -4,7 +4,7 @@ import {
   resetCalibrationConfig, recalculateAllScores,
   fetchAdminStats, fetchPoiStatus,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
-  fetchStoreSummary, clearAllStores, importStoresCsv,
+  fetchStoreSummary, clearAllStores, importStoresCsv, importCompetitorsCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
   seedGuatemalaZones,
   refreshNtlSettlements,
@@ -59,11 +59,14 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   const [storeSummary,  setStoreSummary]  = useState<StoreSummary | null>(null);
   const [poiStatus,     setPoiStatus]     = useState<any>(null);
   const [saving,        setSaving]        = useState(false);
-  const [importing,     setImporting]     = useState(false);
-  const [importResult,  setImportResult]  = useState<ImportResult | null>(null);
-  const [msg,           setMsg]           = useState('');
-  const [tab,           setTab]           = useState<'weights' | 'thresholds' | 'stores' | 'competitors' | 'system'>('weights');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing,         setImporting]         = useState(false);
+  const [importResult,      setImportResult]      = useState<ImportResult | null>(null);
+  const [importingComp,     setImportingComp]     = useState(false);
+  const [importCompResult,  setImportCompResult]  = useState<ImportResult | null>(null);
+  const [msg,               setMsg]               = useState('');
+  const [tab,               setTab]               = useState<'weights' | 'thresholds' | 'stores' | 'competitors' | 'system'>('weights');
+  const fileInputRef     = useRef<HTMLInputElement>(null);
+  const compFileInputRef = useRef<HTMLInputElement>(null);
 
   // Google Places competitor sync
   const [googleApiKey,    setGoogleApiKey]    = useState('');
@@ -172,6 +175,25 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImportCompetitors = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingComp(true);
+    setImportCompResult(null);
+    try {
+      const result = await importCompetitorsCsv(file);
+      setImportCompResult(result);
+    } catch (e: any) {
+      setImportCompResult({
+        error: e.response?.data?.error ?? 'Error al importar',
+        validation_errors: e.response?.data?.errors,
+      });
+    } finally {
+      setImportingComp(false);
+      if (compFileInputRef.current) compFileInputRef.current.value = '';
     }
   };
 
@@ -533,6 +555,61 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
           {/* ── Competitors tab ── */}
           {tab === 'competitors' && (
             <div className="space-y-5">
+
+              {/* CSV Import */}
+              <div className="border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 space-y-3">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Importar competidores desde CSV
+                </p>
+                <div className="text-xs text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded p-2 font-mono leading-relaxed">
+                  <div className="font-semibold text-gray-600 dark:text-gray-400 mb-1">Columnas requeridas:</div>
+                  comp_name, chain, lat, lng<br/>
+                  <div className="font-semibold text-gray-600 dark:text-gray-400 mt-1 mb-1">Columnas opcionales:</div>
+                  address, municipio, department, notes<br/>
+                  <div className="font-semibold text-gray-600 dark:text-gray-400 mt-1 mb-0.5">Alias aceptados:</div>
+                  <span className="opacity-70">name/nombre → comp_name · cadena → chain · latitude → lat · longitude → lng</span>
+                </div>
+                <label className={`flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg border
+                                  text-sm font-medium cursor-pointer transition-colors
+                                  ${importingComp
+                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                    : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-700'
+                                  }`}>
+                  {importingComp ? '⏳ Importando…' : '📂 Seleccionar archivo CSV'}
+                  <input
+                    ref={compFileInputRef}
+                    type="file" accept=".csv" className="hidden"
+                    onChange={handleImportCompetitors} disabled={importingComp}
+                  />
+                </label>
+
+                {importCompResult && (
+                  <div className={`text-sm p-3 rounded-lg ${
+                    importCompResult.error
+                      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                      : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  }`}>
+                    {importCompResult.error ? (
+                      <>
+                        ❌ {importCompResult.error}
+                        {(importCompResult.validation_errors?.length ?? 0) > 0 && (
+                          <ul className="mt-1 text-xs opacity-80 list-disc list-inside">
+                            {importCompResult.validation_errors!.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}
+                            {importCompResult.validation_errors!.length > 10 && (
+                              <li>…y {importCompResult.validation_errors!.length - 10} más</li>
+                            )}
+                          </ul>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        ✅ {importCompResult.inserted} competidores importados
+                        {(importCompResult.skipped ?? 0) > 0 && `, ${importCompResult.skipped} omitidos`}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Reclaim own stores */}
               <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">

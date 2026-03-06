@@ -91,6 +91,43 @@ export async function countCompetitorsByChain(
   return result.rows.map(r => ({ chain: r.chain, count: parseInt(r.count) }));
 }
 
+/** Bulk-insert competitors from CSV, skipping exact name+lat+lng duplicates */
+export async function bulkCreateCompetitors(
+  rows: Array<{
+    name: string;
+    chain: string;
+    lat: number;
+    lng: number;
+    address?: string | null;
+    municipio?: string | null;
+    department?: string | null;
+    notes?: string | null;
+  }>
+): Promise<{ inserted: number; skipped: number }> {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const result = await pool.query(
+      `INSERT INTO competitors (name, chain, lat, lng, address, municipio, department, notes, source, verified)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, 'import', true
+       WHERE NOT EXISTS (
+         SELECT 1 FROM competitors
+         WHERE name = $1
+           AND ROUND(lat::numeric, 5) = ROUND($3::numeric, 5)
+           AND ROUND(lng::numeric, 5) = ROUND($4::numeric, 5)
+       )
+       RETURNING id`,
+      [row.name, row.chain, row.lat, row.lng,
+       row.address ?? null, row.municipio ?? null, row.department ?? null, row.notes ?? null]
+    );
+    if ((result.rowCount ?? 0) > 0) inserted++;
+    else skipped++;
+  }
+
+  return { inserted, skipped };
+}
+
 /** All competitors as GeoJSON FeatureCollection */
 export async function getCompetitorsGeoJSON(): Promise<object> {
   const result = await pool.query(`

@@ -3,6 +3,7 @@ import {
   listStores, getStoreById, createStore, updateStore,
   deleteStore, bulkCreateStores, getStoresGeoJSON,
 } from '../models/store';
+import { getMunicipioContaining } from '../models/municipio';
 import { validateStoreBody, validateId } from '../middleware/validation';
 import { upload } from '../utils/upload';
 import { parseStoreCSV } from '../utils/csvParser';
@@ -48,16 +49,31 @@ router.post(
         return;
       }
 
-      const inputs = rows.map(r => ({
-        name: r.store_name,
-        format: r.format,
-        lat: parseFloat(r.lat),
-        lng: parseFloat(r.lng),
-        status: r.status,
-        department: r.department,
-        municipio: r.municipio,
-        open_date: r.open_date || undefined,
-        notes: r.notes,
+      const inputs = await Promise.all(rows.map(async r => {
+        const lat = parseFloat(r.lat);
+        const lng = parseFloat(r.lng);
+        let municipio = r.municipio || null;
+        let department = r.department || null;
+
+        if (!municipio || !department) {
+          const mun = await getMunicipioContaining(lat, lng);
+          if (mun) {
+            municipio = municipio ?? mun.name;
+            department = department ?? mun.department;
+          }
+        }
+
+        return {
+          name: r.store_name,
+          format: r.format,
+          lat,
+          lng,
+          status: r.status,
+          department: department ?? undefined,
+          municipio: municipio ?? undefined,
+          open_date: r.open_date || undefined,
+          notes: r.notes,
+        };
       }));
 
       const result = await bulkCreateStores(inputs);

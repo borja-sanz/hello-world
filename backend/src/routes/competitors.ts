@@ -4,9 +4,13 @@ import {
   getCompetitorsNearPoint,
   getCompetitorsGeoJSON,
   countCompetitorsByChain,
+  bulkCreateCompetitors,
 } from '../models/competitor';
+import { getMunicipioContaining } from '../models/municipio';
 import { validateId, validateLatLng } from '../middleware/validation';
 import { AppError } from '../middleware/errorHandler';
+import { upload } from '../utils/upload';
+import { parseCompetitorCSV } from '../utils/csvParser';
 
 const router = Router();
 
@@ -100,6 +104,64 @@ router.get('/:id', validateId, async (req: Request, res: Response, next: NextFun
     next(err);
   }
 });
+
+/** POST /api/competitors/import — bulk-import from CSV */
+router.post(
+  '/import',
+  upload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.file) {
+        throw new AppError(400, 'No file uploaded — use multipart/form-data with field "file"');
+      }
+
+      const { rows, errors } = await parseCompetitorCSV(req.file.buffer);
+
+      if (rows.length === 0 && errors.length > 0) {
+        res.status(400).json({ error: 'CSV validation failed', errors });
+        return;
+      }
+
+      // Resolve municipio/department from coordinates when not provided in CSV
+      const inputs = await Promise.all(rows.map(async r => {
+        const lat = parseFloat(r.lat);
+        const lng = parseFloat(r.lng);
+        let municipio = r.municipio || null;
+        let department = r.department || null;
+
+        if (!municipio || !department) {
+          const mun = await getMunicipioContaining(lat, lng);
+          if (mun) {
+            municipio = municipio ?? mun.name;
+            department = department ?? mun.department;
+          }
+        }
+
+        return {
+          name: r.comp_name,
+          chain: r.chain,
+          lat,
+          lng,
+          address: r.address || null,
+          municipio,
+          department,
+          notes: r.notes || null,
+        };
+      }));
+
+      const result = await bulkCreateCompetitors(inputs);
+
+      res.status(201).json({
+        message: 'Import complete',
+        inserted: result.inserted,
+        skipped: result.skipped,
+        validation_errors: errors,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /** POST /api/competitors — add a competitor manually */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {

@@ -22,7 +22,7 @@ const REQUIRED_COLUMNS = ['store_name', 'format', 'lat', 'lng'];
 const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'];
 const VALID_STATUSES = ['open', 'planned', 'closed', 'under_construction'];
 
-// Maps common column name variants → canonical name
+// Maps common column name variants → canonical name (shared by both parsers)
 const COLUMN_ALIASES: Record<string, string> = {
   name: 'store_name',
   nombre: 'store_name',
@@ -35,6 +35,10 @@ const COLUMN_ALIASES: Record<string, string> = {
   longitud: 'lng',
   lon: 'lng',
   long: 'lng',
+  // competitor aliases
+  competitor: 'comp_name',
+  competidor: 'comp_name',
+  cadena: 'chain',
 };
 
 function normalizeRecord(record: Record<string, string>): Record<string, string> {
@@ -120,6 +124,95 @@ export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
     });
 
     // Strip UTF-8 BOM if present (Excel adds it)
+    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
+      ? buffer.subarray(3)
+      : buffer;
+    Readable.from(input).pipe(parser);
+  });
+}
+
+export interface CompetitorRow {
+  comp_name: string;
+  chain: string;
+  lat: string;
+  lng: string;
+  address?: string;
+  municipio?: string;
+  department?: string;
+  notes?: string;
+}
+
+export interface CompetitorParseResult {
+  rows: CompetitorRow[];
+  errors: string[];
+}
+
+const COMPETITOR_REQUIRED = ['comp_name', 'chain', 'lat', 'lng'];
+
+export async function parseCompetitorCSV(buffer: Buffer): Promise<CompetitorParseResult> {
+  return new Promise((resolve) => {
+    const rows: CompetitorRow[] = [];
+    const errors: string[] = [];
+
+    const parser = parse({
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    });
+
+    let rowIndex = 1;
+    let headersValidated = false;
+
+    parser.on('readable', () => {
+      let record: Record<string, string>;
+      while ((record = parser.read()) !== null) {
+        record = normalizeRecord(record);
+
+        if (!headersValidated) {
+          const keys = Object.keys(record);
+          const missing = COMPETITOR_REQUIRED.filter(c => !keys.includes(c));
+          if (missing.length > 0) {
+            errors.push(`Missing required columns: ${missing.join(', ')}`);
+            parser.destroy();
+            resolve({ rows: [], errors });
+            return;
+          }
+          headersValidated = true;
+        }
+
+        rowIndex++;
+        const rowErrors: string[] = [];
+
+        const lat = parseFloat(record.lat);
+        const lng = parseFloat(record.lng);
+        if (isNaN(lat) || lat < 13 || lat > 18) {
+          rowErrors.push(`invalid lat "${record.lat}" (must be 13–18)`);
+        }
+        if (isNaN(lng) || lng < -93 || lng > -88) {
+          rowErrors.push(`invalid lng "${record.lng}" (must be -93 to -88)`);
+        }
+        if (!record.chain) {
+          rowErrors.push('chain is required');
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push(`Row ${rowIndex} (${record.comp_name ?? '?'}): ${rowErrors.join('; ')}`);
+        } else {
+          rows.push(record as unknown as CompetitorRow);
+        }
+      }
+    });
+
+    parser.on('error', (err) => {
+      errors.push(`CSV parse error: ${err.message}`);
+      resolve({ rows, errors });
+    });
+
+    parser.on('end', () => {
+      resolve({ rows, errors });
+    });
+
     const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
       ? buffer.subarray(3)
       : buffer;
