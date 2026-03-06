@@ -110,7 +110,7 @@ export async function bulkCreateCompetitors(
   for (const row of rows) {
     const result = await pool.query(
       `INSERT INTO competitors (name, chain, lat, lng, address, municipio, department, notes, source, verified)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, 'import', true
+       SELECT $1::text, $2::text, $3::numeric, $4::numeric, $5::text, $6::text, $7::text, $8::text, 'import', true
        WHERE NOT EXISTS (
          SELECT 1 FROM competitors
          WHERE name = $1
