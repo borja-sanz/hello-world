@@ -168,9 +168,11 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportResult(result);
       await load();
     } catch (e: any) {
+      const errData = e.response?.data;
+      const detail = errData?.detail ? ` (${errData.detail})` : '';
       setImportResult({
-        error: e.response?.data?.error ?? 'Error al importar',
-        validation_errors: e.response?.data?.errors,
+        error: (errData?.error ?? 'Error al importar') + detail,
+        validation_errors: errData?.errors,
       });
     } finally {
       setImporting(false);
@@ -187,9 +189,11 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       const result = await importCompetitorsCsv(file);
       setImportCompResult(result);
     } catch (e: any) {
+      const errData = e.response?.data;
+      const detail = errData?.detail ? ` (${errData.detail})` : '';
       setImportCompResult({
-        error: e.response?.data?.error ?? 'Error al importar',
-        validation_errors: e.response?.data?.errors,
+        error: (errData?.error ?? 'Error al importar') + detail,
+        validation_errors: errData?.errors,
       });
     } finally {
       setImportingComp(false);
