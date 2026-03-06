@@ -265,3 +265,24 @@ CREATE INDEX IF NOT EXISTS ntl_settlements_municipio_idx ON ntl_settlements (mun
 CREATE INDEX IF NOT EXISTS ntl_settlements_radiance_idx  ON ntl_settlements (radiance_ntl DESC);
 
 COMMENT ON TABLE ntl_settlements IS 'Sub-municipio lit settlement clusters from VIIRS DNB nighttime lights. estimated_pop = ROUND(radiance_ntl x 756) using INE 2018 household size (4.2) x calibration constant (180 hh/unit).';
+
+-- ============================================================
+-- SCHEMA MIGRATIONS (idempotent ALTER TABLE additions)
+-- ============================================================
+
+-- Google Places POI source tracking on poi_cache
+ALTER TABLE poi_cache
+  ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'osm';
+
+-- Google Distance Matrix drive time from each municipio centroid to Guatemala City
+ALTER TABLE municipios
+  ADD COLUMN IF NOT EXISTS drive_time_capital_min INTEGER;
+
+CREATE INDEX IF NOT EXISTS municipios_drive_time_idx ON municipios (drive_time_capital_min)
+  WHERE drive_time_capital_min IS NOT NULL;
+
+COMMENT ON COLUMN municipios.drive_time_capital_min IS
+  'Estimated drive time in minutes from this municipio centroid to Guatemala City (14.6349,-90.5069) via Google Distance Matrix API.';
+
+COMMENT ON COLUMN poi_cache.source IS
+  'Data source: ''osm'' (OpenStreetMap/Overpass), ''google_places'' (Google Places API).';

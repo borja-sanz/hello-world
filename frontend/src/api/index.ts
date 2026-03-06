@@ -176,7 +176,39 @@ export const fetchSubMunicipioScores = async (
   return data;
 };
 
-// ─── OSM ─────────────────────────────────────────────────────────────────────
+// ─── Google Places POIs ───────────────────────────────────────────────────────
+
+export const fetchPoiStatus = async () => {
+  const { data } = await api.get('/api/pois/status');
+  return data as {
+    total: number;
+    by_type: Record<string, number>;
+    drive_time_coverage: number;
+    recent_refreshes: { query_type: string; records_fetched: number; executed_at: string }[];
+  };
+};
+
+export const refreshGooglePois = async (apiKey: string) => {
+  const { data } = await api.post('/api/pois/refresh/pois', { api_key: apiKey });
+  return data as { message: string };
+};
+
+export const refreshMercados = async (apiKey: string) => {
+  const { data } = await api.post('/api/pois/refresh/mercados', { api_key: apiKey });
+  return data as { message: string };
+};
+
+export const refreshDriveTimes = async (apiKey: string) => {
+  const { data } = await api.post('/api/pois/refresh/drive-times', { api_key: apiKey });
+  return data as { message: string };
+};
+
+export const refreshAllGooglePois = async (apiKey: string) => {
+  const { data } = await api.post('/api/pois/refresh/all', { api_key: apiKey });
+  return data as { message: string };
+};
+
+// ─── OSM (kept for backward-compat; UI now uses /api/pois) ───────────────────
 
 export const fetchOsmStatus = async () => {
   const { data } = await api.get('/api/osm/status');

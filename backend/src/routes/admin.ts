@@ -138,16 +138,19 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
   try {
     const result = await pool.query(`
       SELECT
-        (SELECT COUNT(*) FROM stores)                          AS store_count,
-        (SELECT COUNT(*) FROM stores WHERE status='open')     AS open_stores,
-        (SELECT COUNT(*) FROM stores WHERE performance IS NOT NULL) AS tagged_stores,
-        (SELECT COUNT(*) FROM competitors)                    AS competitor_count,
-        (SELECT COUNT(DISTINCT chain) FROM competitors)       AS competitor_chains,
-        (SELECT COUNT(*) FROM municipios)                     AS municipio_count,
-        (SELECT COUNT(*) FROM opportunity_scores)             AS score_records,
-        (SELECT COUNT(*) FROM poi_cache)                      AS poi_count,
-        (SELECT MAX(calculated_at) FROM opportunity_scores)   AS last_scored_at,
-        (SELECT MAX(fetched_at) FROM poi_cache)               AS last_osm_refresh
+        (SELECT COUNT(*) FROM stores)                                                  AS store_count,
+        (SELECT COUNT(*) FROM stores WHERE status='open')                              AS open_stores,
+        (SELECT COUNT(*) FROM stores WHERE performance IS NOT NULL)                    AS tagged_stores,
+        (SELECT COUNT(*) FROM competitors)                                             AS competitor_count,
+        (SELECT COUNT(DISTINCT chain) FROM competitors)                                AS competitor_chains,
+        (SELECT COUNT(*) FROM municipios)                                              AS municipio_count,
+        (SELECT COUNT(*) FROM municipios WHERE drive_time_capital_min IS NOT NULL)     AS drive_time_coverage,
+        (SELECT COUNT(*) FROM opportunity_scores)                                      AS score_records,
+        (SELECT COUNT(*) FROM poi_cache)                                               AS poi_count,
+        (SELECT COUNT(*) FROM poi_cache WHERE source = 'google_places')                AS google_poi_count,
+        (SELECT COUNT(*) FROM poi_cache WHERE poi_type = 'marketplace')                AS mercado_count,
+        (SELECT MAX(calculated_at) FROM opportunity_scores)                            AS last_scored_at,
+        (SELECT MAX(fetched_at) FROM poi_cache WHERE source = 'google_places')         AS last_google_poi_refresh
     `);
     res.json(result.rows[0]);
   } catch (err) {

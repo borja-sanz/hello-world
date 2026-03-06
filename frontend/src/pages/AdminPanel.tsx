@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchCalibrationConfig, updateCalibrationConfig,
   resetCalibrationConfig, recalculateAllScores,
-  fetchAdminStats, fetchOsmStatus, refreshOsmAll,
+  fetchAdminStats, fetchPoiStatus,
+  refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, importStoresCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain,
 } from '../api';
@@ -53,8 +54,8 @@ const FORMAT_COLORS: Record<string, string> = {
 const AdminPanel: React.FC<Props> = ({ onClose }) => {
   const [config,        setConfig]        = useState<CalibrationConfig | null>(null);
   const [stats,         setStats]         = useState<any>(null);
-  const [osmStatus,     setOsm]           = useState<any>(null);
   const [storeSummary,  setStoreSummary]  = useState<StoreSummary | null>(null);
+  const [poiStatus,     setPoiStatus]     = useState<any>(null);
   const [saving,        setSaving]        = useState(false);
   const [importing,     setImporting]     = useState(false);
   const [importResult,  setImportResult]  = useState<ImportResult | null>(null);
@@ -71,13 +72,13 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
 
   const load = useCallback(async () => {
     try {
-      const [c, s, o, ss] = await Promise.all([
+      const [c, s, ps, ss] = await Promise.all([
         fetchCalibrationConfig(),
         fetchAdminStats(),
-        fetchOsmStatus().catch(() => null),
+        fetchPoiStatus().catch(() => null),
         fetchStoreSummary().catch(() => null),
       ]);
-      setConfig(c); setStats(s); setOsm(o); setStoreSummary(ss);
+      setConfig(c); setStats(s); setPoiStatus(ps); setStoreSummary(ss);
     } catch {
       setMsg('Error cargando configuración');
     }
@@ -115,11 +116,40 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
     } catch { setMsg('❌ Error'); }
   };
 
-  const handleOsmRefresh = async () => {
+  const handleRefreshPois = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
     try {
-      setMsg('⏳ Actualizando datos OSM (~2 min)…');
-      await refreshOsmAll();
-      setMsg('✅ Actualización OSM iniciada');
+      setMsg('⏳ Actualizando POIs comerciales (~5 min, ~$4–12)…');
+      await refreshGooglePois(googleApiKey.trim());
+      setMsg('✅ Actualización de POIs iniciada en background');
+    } catch { setMsg('❌ Error al iniciar actualización de POIs'); }
+  };
+
+  const handleRefreshMercados = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    try {
+      setMsg('⏳ Buscando mercados informales (~1 min, ~$0.37)…');
+      await refreshMercados(googleApiKey.trim());
+      setMsg('✅ Búsqueda de mercados iniciada en background');
+    } catch { setMsg('❌ Error'); }
+  };
+
+  const handleRefreshDriveTimes = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    try {
+      setMsg('⏳ Calculando tiempos de viaje a capital (~30 s, ~$0.34)…');
+      await refreshDriveTimes(googleApiKey.trim());
+      setMsg('✅ Cálculo de tiempos de viaje iniciado');
+    } catch { setMsg('❌ Error'); }
+  };
+
+  const handleRefreshAll = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!confirm('Esto actualizará todos los datos de POIs: tiempos de viaje, mercados, iglesias y POIs comerciales.\nCosto estimado: $5–13. ¿Continuar?')) return;
+    try {
+      setMsg('⏳ Actualización completa iniciada (~15 min, ~$5–13)…');
+      await refreshAllGooglePois(googleApiKey.trim());
+      setMsg('✅ Actualización completa en background — recalcula scores cuando termine');
     } catch { setMsg('❌ Error'); }
   };
 
@@ -529,21 +559,24 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
           {/* ── System tab ── */}
           {tab === 'system' && (
             <div className="space-y-4">
+              {/* Stats grid */}
               {stats && (
                 <div className="grid grid-cols-2 gap-3">
-                  {[
-                    ['Municipios',         stats.municipio_count],
-                    ['Nuestras tiendas',   stats.store_count],
-                    ['Tiendas abiertas',   stats.open_stores],
-                    ['Competidores',       stats.competitor_count],
-                    ['Cadenas comp.',      stats.competitor_chains],
-                    ['Registros de score', stats.score_records],
-                    ['POIs en caché',      stats.poi_count],
-                  ].map(([label, val]) => (
-                    <div key={label as string}
+                  {([
+                    ['Municipios',            stats.municipio_count],
+                    ['Nuestras tiendas',      stats.store_count],
+                    ['Tiendas abiertas',      stats.open_stores],
+                    ['Competidores',          stats.competitor_count],
+                    ['Cadenas comp.',         stats.competitor_chains],
+                    ['Registros de score',    stats.score_records],
+                    ['POIs (Google)',          stats.google_poi_count ?? 0],
+                    ['Mercados informales',   stats.mercado_count ?? 0],
+                    ['Tiempos de viaje',      `${stats.drive_time_coverage ?? 0}/${stats.municipio_count ?? 0}`],
+                  ] as [string, string | number][]).map(([label, val]) => (
+                    <div key={label}
                          className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
                       <div className="text-lg font-bold text-gray-800 dark:text-gray-100">
-                        {Number(val).toLocaleString()}
+                        {typeof val === 'number' ? val.toLocaleString() : val}
                       </div>
                       <div className="text-xs text-gray-500">{label}</div>
                     </div>
@@ -551,18 +584,29 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
                 </div>
               )}
 
-              {osmStatus && (
-                <div className="text-xs text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                  <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">Estado OSM</div>
-                  <div>{osmStatus.total_pois?.toLocaleString() ?? 0} POIs en caché</div>
-                  {osmStatus.recent_refreshes?.[0] && (
-                    <div className="mt-1 text-gray-400">
-                      Última actualización: {new Date(osmStatus.recent_refreshes[0].executed_at).toLocaleString()}
+              {/* Google POI status */}
+              {poiStatus && (
+                <div className="text-xs text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-1">
+                  <div className="font-medium text-gray-700 dark:text-gray-300">Estado Google POIs</div>
+                  <div>{(poiStatus.total ?? 0).toLocaleString()} POIs en caché</div>
+                  <div className="text-gray-400">
+                    Mercados: {poiStatus.by_type?.marketplace ?? 0} ·
+                    Bancos: {poiStatus.by_type?.bank ?? 0} ·
+                    Farmacias: {poiStatus.by_type?.pharmacy ?? 0} ·
+                    Iglesias SUD: {poiStatus.by_type?.lds_church ?? 0}
+                  </div>
+                  <div className="text-gray-400">
+                    Tiempos de viaje: {poiStatus.drive_time_coverage ?? 0} municipios
+                  </div>
+                  {poiStatus.recent_refreshes?.[0] && (
+                    <div className="text-gray-400">
+                      Última actualización: {new Date(poiStatus.recent_refreshes[0].executed_at).toLocaleString()}
                     </div>
                   )}
                 </div>
               )}
 
+              {/* Recalculate */}
               <button
                 onClick={handleRecalculate}
                 className="w-full py-2 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
@@ -570,12 +614,43 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
                 Recalcular todos los scores
               </button>
 
-              <button
-                onClick={handleOsmRefresh}
-                className="w-full py-2 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
-              >
-                Actualizar datos OSM (2 min)
-              </button>
+              {/* Google POI refresh section */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Actualizar datos Google Maps
+                </p>
+                <p className="text-xs text-gray-400">
+                  Usa la API Key ingresada en la pestaña Competidores. Los tiempos de viaje son el
+                  principal indicador de movilidad (reemplaza OSM). Los mercados informales pesan
+                  3× en la puntuación comercial — actualizar mensualmente.
+                </p>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={handleRefreshDriveTimes}
+                    className="w-full py-2 px-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium transition-colors text-left"
+                  >
+                    Tiempos de viaje → capital (~30 s, ~$0.34)
+                  </button>
+                  <button
+                    onClick={handleRefreshMercados}
+                    className="w-full py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium transition-colors text-left"
+                  >
+                    Mercados informales (~1 min, ~$0.37)
+                  </button>
+                  <button
+                    onClick={handleRefreshPois}
+                    className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors text-left"
+                  >
+                    POIs comerciales: bancos, farmacias, escuelas… (~5 min, ~$4–12)
+                  </button>
+                  <button
+                    onClick={handleRefreshAll}
+                    className="w-full py-2 px-3 rounded-lg bg-gray-700 hover:bg-gray-800 text-white text-xs font-medium transition-colors text-left"
+                  >
+                    Actualización completa (~15 min, ~$5–13)
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

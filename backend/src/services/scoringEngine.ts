@@ -168,13 +168,26 @@ const DEPT_DENSITY: Record<string, number> = {
 
 /**
  * MOBILITY SCORE (0–100)
- * Primary: OSM road/transit POI count from poi_cache within 10 km.
- * Secondary: population density — actual (population/area_km2) when area data
- *   is available, otherwise falls back to the department-level average from
- *   DEPT_DENSITY (INE 2018 / SEGEPLAN). Using actual density gives much better
- *   intra-department differentiation (Guatemala City ≈ 4,800/km² vs. rural
- *   Guatemala department municipios ≈ 200–600/km²).
- * Fallback: urban flag + commercial presence.
+ *
+ * Primary: Google Distance Matrix drive time to Guatemala City.
+ *   Drive time is the best single proxy for market access: it captures road
+ *   quality, altitude, and actual route conditions better than any POI count.
+ *   Populated once via /api/pois/refresh/drive-times.
+ *
+ *   <20 min: 88  (Guatemala City metro / immediate suburbs)
+ *   20–45:   74  (peri-urban: Mixco, Villa Nueva, Amatitlán)
+ *   45–90:   60  (semi-urban: Chimaltenango, Escuintla)
+ *   90–150:  45  (regional: Quetzaltenango, Cobán)
+ *   150–210: 30  (remote: Huehuetenango, Petén corridor)
+ *   210–300: 18  (very remote)
+ *   >300:    10  (Petén interior / border areas)
+ *
+ * Secondary (always): population density bonus (0–20 pts).
+ *   Captures intra-zone differences where drive time is similar.
+ *
+ * Fallback (if drive_time_capital_min IS NULL): road/transit POI count from
+ *   poi_cache within 10 km, then density-only if no POI data.
+ *   This keeps the engine functional before the Distance Matrix refresh runs.
  */
 async function scoreMobility(
   lat: number,
@@ -182,49 +195,65 @@ async function scoreMobility(
   isUrban: boolean,
   department: string | null,
   municipioPop: number,
-  areaKm2: number | null
+  areaKm2: number | null,
+  driveTimeMin: number | null
 ): Promise<number> {
-  // 1. OSM road/transit POIs
-  const poiResult = await pool.query(
-    `SELECT COUNT(*) AS cnt
-     FROM poi_cache
-     WHERE poi_type IN ('highway_primary','highway_secondary','highway_trunk',
-                        'bus_stop','bus_station','fuel')
-       AND ST_DWithin(
-         geometry::geography,
-         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-         10000
-       )`,
-    [lat, lng]
-  );
-  const poiCount = parseInt(poiResult.rows[0]?.cnt ?? '0');
 
-  let score: number;
-  if (poiCount > 0) {
-    score = clamp(piecewise(poiCount, [
-      [0,   isUrban ? 40 : 20],
-      [5,   55],
-      [15,  70],
-      [30,  85],
-      [50,  95],
-      [100, 100],
+  let baseScore: number;
+
+  if (driveTimeMin !== null) {
+    // ── Primary: drive time to Guatemala City ────────────────────────────────
+    baseScore = clamp(piecewise(driveTimeMin, [
+      [0,   88],
+      [20,  88],
+      [45,  74],
+      [90,  60],
+      [150, 45],
+      [210, 30],
+      [300, 18],
+      [420, 10],
     ]));
   } else {
-    // Fallback: store/competitor presence implies road access
-    const storeResult = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM (
-         SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
-         UNION ALL
-         SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
-       ) combined`,
+    // ── Fallback: Google/OSM road & transit POI count ─────────────────────────
+    const poiResult = await pool.query(
+      `SELECT COUNT(*) AS cnt
+       FROM poi_cache
+       WHERE poi_type IN ('highway_primary','highway_secondary','highway_trunk',
+                          'bus_stop','bus_station','fuel')
+         AND ST_DWithin(
+           geometry::geography,
+           ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+           10000
+         )`,
       [lat, lng]
     );
-    const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
-    score = clamp((isUrban ? 55 : 30) + Math.min(storeCount * 3, 30));
+    const poiCount = parseInt(poiResult.rows[0]?.cnt ?? '0');
+
+    if (poiCount > 0) {
+      baseScore = clamp(piecewise(poiCount, [
+        [0,   isUrban ? 40 : 20],
+        [5,   55],
+        [15,  70],
+        [30,  85],
+        [50,  95],
+        [100, 100],
+      ]));
+    } else {
+      // Last resort: store/competitor presence implies road access
+      const storeResult = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM (
+           SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
+           UNION ALL
+           SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
+         ) combined`,
+        [lat, lng]
+      );
+      const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
+      baseScore = clamp((isUrban ? 55 : 30) + Math.min(storeCount * 3, 30));
+    }
   }
 
-  // 2. Density bonus — use actual municipio density when area_km2 is seeded,
-  //    otherwise fall back to the department-level average from INE 2018.
+  // ── Density bonus (0–20 pts) — differentiates within similar drive-time bands
   const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
   const density = (areaKm2 != null && areaKm2 > 0 && municipioPop > 0)
     ? municipioPop / areaKm2
@@ -232,33 +261,60 @@ async function scoreMobility(
 
   const densityBonus = clamp(piecewise(density, [
     [0,    0],
-    [50,   3],
-    [150,  8],
-    [300, 13],
-    [500, 18],
-    [800, 22],
-    [1500, 25],
-    [3000, 28],  // dense urban cores (e.g. Guatemala City: ~4,800/km²)
-    [5000, 30],
+    [50,   2],
+    [150,  5],
+    [300,  9],
+    [500, 12],
+    [800, 15],
+    [1500, 17],
+    [3000, 19],
+    [5000, 20],
   ]));
 
-  return clamp(score + densityBonus);
+  return clamp(baseScore + densityBonus);
 }
 
 /**
  * COMMERCIAL DENSITY SCORE (0–100)
- * Primary: bank/pharmacy/market/hardware/ATM POIs within 5km.
- * ATMs are included because Banrural, BI, and BAC ATMs are densely mapped in
- * OSM for Guatemala and are strong indicators of formal economic activity.
- * Fallback: competitor count (any formal commerce signals purchasing power).
+ *
+ * Weighted POI count within 5km. Weights reflect foot-traffic intensity:
+ *   marketplace  × 3.0 — mercado informal = anchor destination, daily visits
+ *   bank         × 2.0 — formal economy anchor, draws queues and dwell time
+ *   pharmacy     × 1.5 — regular repeat trips (prescriptions, baby products)
+ *   hospital     × 1.0 — important amenity but not daily commerce driver
+ *   school       × 1.0 — parents pick-up creates peak foot traffic
+ *   fuel         × 0.8 — convenience, but drivers may not stop at the market
+ *   bus_station  × 1.2 — transit node → passenger foot traffic
+ *   others       × 1.0
+ *
+ * Mercado informales are Guatemala's strongest demand signal: they draw hundreds
+ * to thousands of shoppers daily and their catchment area overlaps almost
+ * perfectly with Despensa Familiar's target customer.
+ *
+ * Fallback: competitor count (formal commerce signals purchasing power).
  */
 async function scoreCommercial(lat: number, lng: number): Promise<number> {
-  // Count commercial POIs in cache
+  // Weighted sum of commercial POIs within 5km
   const poiResult = await pool.query(
-    `SELECT COUNT(*) AS cnt
+    `SELECT COALESCE(SUM(
+       CASE poi_type
+         WHEN 'marketplace'    THEN 3.0
+         WHEN 'bank'           THEN 2.0
+         WHEN 'pharmacy'       THEN 1.5
+         WHEN 'bus_station'    THEN 1.2
+         WHEN 'hospital'       THEN 1.0
+         WHEN 'school'         THEN 1.0
+         WHEN 'money_transfer' THEN 1.0
+         WHEN 'atm'            THEN 1.0
+         WHEN 'supermarket'    THEN 1.0
+         WHEN 'fuel'           THEN 0.8
+         ELSE 1.0
+       END
+     ), 0) AS weighted_cnt
      FROM poi_cache
-     WHERE poi_type IN ('bank','pharmacy','marketplace','market',
-                        'hardware','fuel','supermarket','money_transfer','atm')
+     WHERE poi_type IN ('bank','pharmacy','marketplace','market','hospital',
+                        'school','fuel','supermarket','money_transfer','atm',
+                        'bus_station','hardware')
        AND ST_DWithin(
          geometry::geography,
          ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
@@ -266,17 +322,18 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
        )`,
     [lat, lng]
   );
-  const poiCount = parseInt(poiResult.rows[0]?.cnt ?? '0');
+  const poiCount = parseFloat(poiResult.rows[0]?.weighted_cnt ?? '0');
 
   if (poiCount > 0) {
+    // Breakpoints scaled up ~1.5× vs raw count to account for weight inflation
     return clamp(piecewise(poiCount, [
-      [0,   0],
-      [2,  20],
-      [5,  40],
-      [10, 60],
-      [20, 80],
-      [40, 95],
-      [80, 100],
+      [0,    0],
+      [3,   20],
+      [8,   40],
+      [15,  60],
+      [30,  80],
+      [60,  95],
+      [120, 100],
     ]));
   }
 
@@ -515,9 +572,10 @@ export async function scorePoint(
 ): Promise<OpportunityScore & { municipio_id?: number; municipio_name?: string }> {
   const cfg = config ?? await loadCalibrationConfig();
 
-  // Find nearest/containing municipio — include socioeconomic + area data
+  // Find nearest/containing municipio — include socioeconomic + area + drive-time data
   const municipioResult = await pool.query(
-    `SELECT id, name, department, population, is_urban, poverty_index, remittance_index, area_km2
+    `SELECT id, name, department, population, is_urban, poverty_index, remittance_index,
+            area_km2, drive_time_capital_min
      FROM municipios
      WHERE centroid IS NOT NULL
      ORDER BY centroid <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)
@@ -531,6 +589,7 @@ export async function scorePoint(
   const povertyIndex    = municipio?.poverty_index    != null ? parseFloat(municipio.poverty_index)    : null;
   const remittanceIndex = municipio?.remittance_index != null ? parseFloat(municipio.remittance_index) : null;
   const areaKm2         = municipio?.area_km2         != null ? parseFloat(municipio.area_km2)         : null;
+  const driveTimeMin    = municipio?.drive_time_capital_min != null ? parseInt(municipio.drive_time_capital_min) : null;
 
   // Population within rings
   const pop3Result = await pool.query(
@@ -551,7 +610,7 @@ export async function scorePoint(
   // Calculate all factor scores
   const [mobilityScore, commercialScore, competitionScore, socioScore] =
     await Promise.all([
-      scoreMobility(lat, lng, isUrban, department, pop, areaKm2),
+      scoreMobility(lat, lng, isUrban, department, pop, areaKm2, driveTimeMin),
       scoreCommercial(lat, lng),
       scoreCompetition(lat, lng),
       scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex),

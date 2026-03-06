@@ -12,6 +12,7 @@ import competitorRoutes from './routes/competitors';
 import municipioRoutes from './routes/municipios';
 import scoringRoutes from './routes/scoring';
 import osmRoutes from './routes/osm';
+import googlePoisRoutes from './routes/google-pois';
 import adminRoutes from './routes/admin';
 import ntlRoutes from './routes/ntl';
 
@@ -60,7 +61,8 @@ app.use('/api/stores', storeRoutes);
 app.use('/api/competitors', competitorRoutes);
 app.use('/api/municipios', municipioRoutes);
 app.use('/api/scoring', scoringRoutes);
-app.use('/api/osm', osmRoutes);
+app.use('/api/osm', osmRoutes);       // kept for backward-compat; UI now uses /api/pois
+app.use('/api/pois', googlePoisRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ntl', ntlRoutes);
 
