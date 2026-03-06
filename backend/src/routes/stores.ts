@@ -56,7 +56,7 @@ router.post(
         let department = r.department || null;
 
         if (!municipio || !department) {
-          const mun = await getMunicipioContaining(lat, lng);
+          const mun = await getMunicipioContaining(lat, lng).catch(() => null);
           if (mun) {
             municipio = municipio ?? mun.name;
             department = department ?? mun.department;
