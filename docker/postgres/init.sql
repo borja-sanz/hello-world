@@ -222,3 +222,46 @@ COMMENT ON TABLE municipios IS 'Guatemala administrative municipio boundaries wi
 COMMENT ON TABLE competitors IS 'Competitor supermarket locations (Super del Barrio, Suma, La Bodegona, etc.)';
 COMMENT ON TABLE opportunity_scores IS 'Computed composite opportunity scores per municipio';
 COMMENT ON TABLE calibration_config IS 'Admin-adjustable scoring weights and thresholds';
+
+-- ============================================================
+-- NTL_SETTLEMENTS: Sub-municipio lit settlements from VIIRS nighttime lights
+-- Source: VIIRS DNB annual composite (synthetic seed; replace with real VIIRS GeoTIFF extract)
+--
+-- Population estimate formula (INE Guatemala Censo 2018):
+--   estimated_pop = ROUND(radiance_ntl x ntl_calib_k x ntl_household_size)
+--   where ntl_calib_k      = 180 (households per nW/cm2/sr unit)
+--         ntl_household_size = 4.2 (avg persons per household, INE 2018)
+--   -> estimated_pop ~ ROUND(radiance_ntl x 756)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ntl_settlements (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(255) NOT NULL,
+    municipio_id    INTEGER REFERENCES municipios(id) ON DELETE SET NULL,
+    lat             DECIMAL(10, 7) NOT NULL,
+    lng             DECIMAL(10, 7) NOT NULL,
+    geometry        GEOMETRY(Point, 4326),
+    radiance_ntl    DECIMAL(8, 3) NOT NULL CHECK (radiance_ntl >= 0),
+    estimated_pop   INTEGER,
+    area_km2        DECIMAL(8, 3),
+    ntl_source      VARCHAR(50) DEFAULT 'synthetic',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION update_ntl_settlement_geometry()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.geometry = ST_SetSRID(ST_MakePoint(NEW.lng, NEW.lat), 4326);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS ntl_settlements_geometry_trigger ON ntl_settlements;
+CREATE TRIGGER ntl_settlements_geometry_trigger
+    BEFORE INSERT OR UPDATE ON ntl_settlements
+    FOR EACH ROW EXECUTE FUNCTION update_ntl_settlement_geometry();
+
+CREATE INDEX IF NOT EXISTS ntl_settlements_geometry_idx  ON ntl_settlements USING GIST (geometry);
+CREATE INDEX IF NOT EXISTS ntl_settlements_municipio_idx ON ntl_settlements (municipio_id);
+CREATE INDEX IF NOT EXISTS ntl_settlements_radiance_idx  ON ntl_settlements (radiance_ntl DESC);
+
+COMMENT ON TABLE ntl_settlements IS 'Sub-municipio lit settlement clusters from VIIRS DNB nighttime lights. estimated_pop = ROUND(radiance_ntl x 756) using INE 2018 household size (4.2) x calibration constant (180 hh/unit).';

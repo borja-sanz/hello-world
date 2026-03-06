@@ -6,11 +6,12 @@ import {
   fetchStores, fetchCompetitors,
   fetchOpportunities, fetchBlueOceanOpportunities,
   analyzeTradeArea, calculateAllScores,
+  fetchNtlSettlements,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
   Store, Competitor, OpportunityScore, TradeAreaAnalysis,
-  FilterState, LayerState,
+  FilterState, LayerState, NtlSettlementsResponse, NtlSettlement,
 } from './types';
 
 const App: React.FC = () => {
@@ -28,6 +29,8 @@ const App: React.FC = () => {
   const [competitors,   setCompetitors]   = useState<Competitor[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityScore[]>([]);
   const [tradeArea,     setTradeArea]     = useState<TradeAreaAnalysis | null>(null);
+  const [ntlData,       setNtlData]       = useState<NtlSettlementsResponse | null>(null);
+  const [ntlLoading,    setNtlLoading]    = useState(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [loading,      setLoading]      = useState(false);
@@ -133,13 +136,29 @@ const App: React.FC = () => {
     setLayers(l => ({ ...l, [key]: !l[key] }));
   }, []);
 
-  // ── Opportunity card click → fly map to municipio (no trade area analysis) ──
-  const handleOppClick = useCallback((opp: OpportunityScore) => {
+  // ── Opportunity card click → fly to municipio + load NTL settlements ──────
+  const handleOppClick = useCallback(async (opp: OpportunityScore) => {
     if (opp.centroid) {
       const lat = opp.centroid.lat as unknown as number;
       const lng = opp.centroid.lng as unknown as number;
       setFlyToTarget({ lat, lng, zoom: 11 });
     }
+    // Load NTL settlements for this municipio
+    setNtlData(null);
+    setNtlLoading(true);
+    try {
+      const result = await fetchNtlSettlements(opp.municipio_id);
+      setNtlData(result);
+    } catch {
+      // NTL data is optional — silently skip if unavailable
+    } finally {
+      setNtlLoading(false);
+    }
+  }, []);
+
+  // ── NTL settlement clicked → fly to that settlement ───────────────────────
+  const handleSettlementClick = useCallback((s: NtlSettlement) => {
+    setFlyToTarget({ lat: s.lat, lng: s.lng, zoom: 14 });
   }, []);
 
   return (
@@ -203,6 +222,8 @@ const App: React.FC = () => {
             onMapClick={handleMapClick}
             loading={mapLoading}
             flyToTarget={flyToTarget}
+            ntlSettlements={ntlData?.settlements}
+            onNtlClick={handleSettlementClick}
           />
         </div>
 
@@ -220,6 +241,10 @@ const App: React.FC = () => {
           onTradeAreaClose={() => setTradeArea(null)}
           onCalculate={handleCalculate}
           onOpenAdmin={() => setShowAdmin(true)}
+          ntlData={ntlData}
+          ntlLoading={ntlLoading}
+          onNtlClose={() => { setNtlData(null); }}
+          onSettlementClick={handleSettlementClick}
         />
       </main>
 

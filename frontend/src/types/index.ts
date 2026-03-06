@@ -95,6 +95,35 @@ export interface FilterState {
   blueOcean: boolean;
 }
 
+export interface NtlSettlement {
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+  radiance_ntl: number;
+  estimated_pop: number | null;
+  area_km2: number | null;
+  ntl_source: string;
+  municipio_id: number | null;
+  municipio_name?: string;
+  department?: string;
+  dist_from_center_km?: number;
+}
+
+export interface NtlSettlementsResponse {
+  municipio_id: number;
+  municipio_name: string;
+  radius_km: number;
+  count: number;
+  calibration: {
+    calib_k: number;
+    household_size: number;
+    formula: string;
+    note: string;
+  };
+  settlements: NtlSettlement[];
+}
+
 export interface CalibrationConfig {
   weight_population: number;
   weight_mobility: number;

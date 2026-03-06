@@ -2,27 +2,36 @@ import React, { useState } from 'react';
 import OpportunityCard from './OpportunityCard';
 import TradeAreaPanel from './TradeAreaPanel';
 import FilterControls from './FilterControls';
-import type { OpportunityScore, TradeAreaAnalysis, FilterState, LayerState } from '../types';
+import NtlPanel from './NtlPanel';
+import type {
+  OpportunityScore, TradeAreaAnalysis, FilterState, LayerState,
+  NtlSettlementsResponse, NtlSettlement,
+} from '../types';
 import { exportOpportunitiesCsv } from '../utils/export';
 
 interface Props {
-  opportunities:   OpportunityScore[];
-  tradeArea:       TradeAreaAnalysis | null;
-  filters:         FilterState;
-  layers:          LayerState;
-  loading:         boolean;
-  calculating:     boolean;
-  onFilterChange:  (f: FilterState) => void;
-  onLayerToggle:   (key: keyof LayerState) => void;
-  onOppClick:      (opp: OpportunityScore) => void;
-  onTradeAreaClose: () => void;
-  onCalculate:     () => void;
-  onOpenAdmin:     () => void;
+  opportunities:      OpportunityScore[];
+  tradeArea:          TradeAreaAnalysis | null;
+  filters:            FilterState;
+  layers:             LayerState;
+  loading:            boolean;
+  calculating:        boolean;
+  onFilterChange:     (f: FilterState) => void;
+  onLayerToggle:      (key: keyof LayerState) => void;
+  onOppClick:         (opp: OpportunityScore) => void;
+  onTradeAreaClose:   () => void;
+  onCalculate:        () => void;
+  onOpenAdmin:        () => void;
+  ntlData?:           NtlSettlementsResponse | null;
+  ntlLoading?:        boolean;
+  onNtlClose?:        () => void;
+  onSettlementClick?: (s: NtlSettlement) => void;
 }
 
 const Sidebar: React.FC<Props> = ({
   opportunities, tradeArea, filters, layers, loading, calculating,
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
+  ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -91,6 +100,16 @@ const Sidebar: React.FC<Props> = ({
           {/* Trade area panel */}
           {tradeArea && (
             <TradeAreaPanel analysis={tradeArea} onClose={onTradeAreaClose} />
+          )}
+
+          {/* NTL sub-municipio drill-down */}
+          {(ntlData || ntlLoading) && (
+            <NtlPanel
+              data={ntlData!}
+              loading={ntlLoading}
+              onClose={onNtlClose ?? (() => {})}
+              onSettlementClick={onSettlementClick ?? (() => {})}
+            />
           )}
 
           {/* Rankings list */}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis } from '../types';
+import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -49,20 +49,23 @@ const SCORE_COLORS = {
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface MapViewProps {
-  stores:        Store[];
-  competitors:   Competitor[];
-  opportunities: OpportunityScore[];
-  layers:        LayerState;
-  tradeArea:     TradeAreaAnalysis | null;
-  onMapClick:    (lat: number, lng: number) => void;
-  loading:       boolean;
-  flyToTarget?:  { lat: number; lng: number; zoom?: number } | null;
+  stores:           Store[];
+  competitors:      Competitor[];
+  opportunities:    OpportunityScore[];
+  layers:           LayerState;
+  tradeArea:        TradeAreaAnalysis | null;
+  onMapClick:       (lat: number, lng: number) => void;
+  loading:          boolean;
+  flyToTarget?:     { lat: number; lng: number; zoom?: number } | null;
+  ntlSettlements?:  NtlSettlement[];
+  onNtlClick?:      (s: NtlSettlement) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const MapView: React.FC<MapViewProps> = ({
   stores, competitors, opportunities, layers, tradeArea, onMapClick, loading, flyToTarget,
+  ntlSettlements = [], onNtlClick,
 }) => {
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
@@ -71,6 +74,7 @@ const MapView: React.FC<MapViewProps> = ({
     competitors:   L.LayerGroup;
     opportunities: L.LayerGroup;
     tradeArea:     L.LayerGroup;
+    ntl:           L.LayerGroup;
   } | null>(null);
 
   // ── Initialize map once ───────────────────────────────────────────────────
@@ -93,6 +97,7 @@ const MapView: React.FC<MapViewProps> = ({
       competitors:   L.layerGroup().addTo(map),
       opportunities: L.layerGroup().addTo(map),
       tradeArea:     L.layerGroup().addTo(map),
+      ntl:           L.layerGroup().addTo(map),
     };
 
     layersRef.current = groups;
@@ -220,6 +225,78 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [opportunities, layers.opportunities, layers.heatmap]);
 
+  // ── Render NTL glow circles ───────────────────────────────────────────────
+  // Each settlement is rendered as two concentric circles: a larger transparent
+  // outer glow and a smaller opaque core, mimicking how satellite NTL data looks.
+  useEffect(() => {
+    const group = layersRef.current?.ntl;
+    if (!group) return;
+    group.clearLayers();
+    if (!ntlSettlements || ntlSettlements.length === 0) return;
+
+    const maxRad = Math.max(...ntlSettlements.map(s => s.radiance_ntl), 1);
+
+    for (const s of ntlSettlements) {
+      if (!s.lat || !s.lng) continue;
+
+      // Size: log-scaled radius so small towns are still visible next to bright cities
+      const normRad   = s.radiance_ntl / maxRad;
+      const coreR     = Math.max(300, Math.round(normRad * 2000));   // meters
+      const glowR     = coreR * 2.8;
+
+      // Color: warm yellow → white based on radiance intensity
+      const hue  = 48 - Math.round(normRad * 20);                    // 48°→28° (yellow→orange)
+      const light = 55 + Math.round(normRad * 40);                   // 55%→95%
+      const coreColor = `hsl(${hue}, 95%, ${light}%)`;
+      const glowColor = `hsl(${hue}, 90%, ${Math.min(light + 10, 98)}%)`;
+
+      const pop = s.estimated_pop ?? 0;
+      const popStr = pop > 0
+        ? `~${pop.toLocaleString()} hab. est.`
+        : 'sin estimación';
+
+      const popupHtml = `
+        <div class="text-sm" style="min-width:150px">
+          <strong>${s.name}</strong>
+          <div style="color:#6b7280;font-size:11px;margin-top:2px">
+            Radiancia VIIRS: <strong>${s.radiance_ntl.toFixed(1)} nW/cm²/sr</strong><br/>
+            Población estimada: <strong>${popStr}</strong><br/>
+            Fórmula: radiancia × 180 × 4.2
+            ${s.area_km2 ? `<br/>Área lit: ${s.area_km2} km²` : ''}
+          </div>
+        </div>
+      `;
+
+      // Outer glow
+      L.circle([s.lat, s.lng], {
+        radius:      glowR,
+        color:       glowColor,
+        fillColor:   glowColor,
+        weight:      0,
+        fillOpacity: 0.12,
+        interactive: false,
+      }).addTo(group);
+
+      // Inner core (clickable)
+      const core = L.circle([s.lat, s.lng], {
+        radius:      coreR,
+        color:       'white',
+        fillColor:   coreColor,
+        weight:      1,
+        opacity:     0.6,
+        fillOpacity: 0.70,
+      });
+      core.bindPopup(popupHtml);
+      if (onNtlClick) {
+        core.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          onNtlClick(s);
+        });
+      }
+      group.addLayer(core);
+    }
+  }, [ntlSettlements, onNtlClick]);
+
   // ── flyToTarget: pan/zoom map when a sidebar card is clicked ─────────────
   useEffect(() => {
     if (!flyToTarget || !mapRef.current) return;
@@ -316,6 +393,15 @@ const MapView: React.FC<MapViewProps> = ({
           <div className="w-3 h-3 rounded-full flex-shrink-0 bg-red-600" />
           <span className="text-gray-600 dark:text-gray-400">NO-GO (&lt;40)</span>
         </div>
+        {ntlSettlements.length > 0 && (
+          <>
+            <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#fde047', boxShadow: '0 0 4px 2px #fde04780' }} />
+              <span className="text-gray-600 dark:text-gray-400">Luces nocturnas</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

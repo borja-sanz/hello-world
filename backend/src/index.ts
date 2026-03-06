@@ -13,6 +13,7 @@ import municipioRoutes from './routes/municipios';
 import scoringRoutes from './routes/scoring';
 import osmRoutes from './routes/osm';
 import adminRoutes from './routes/admin';
+import ntlRoutes from './routes/ntl';
 
 dotenv.config();
 
@@ -61,6 +62,7 @@ app.use('/api/municipios', municipioRoutes);
 app.use('/api/scoring', scoringRoutes);
 app.use('/api/osm', osmRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ntl', ntlRoutes);
 
 // --- Serve compiled React frontend in production ---
 if (isProd) {

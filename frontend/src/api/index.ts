@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type {
   Store, Competitor, Municipio, OpportunityScore,
-  TradeAreaAnalysis, CalibrationConfig,
+  TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse,
 } from '../types';
 
 // In production (Render), VITE_API_URL is set to '' so requests go to
@@ -153,6 +153,20 @@ export const syncAllGooglePlacesCompetitors = async (apiKey: string) => {
 export const syncGooglePlacesChain = async (apiKey: string, chain: string) => {
   const { data } = await api.post('/api/admin/google-places/sync-chain', { api_key: apiKey, chain });
   return data as { chain: string; found: number; inserted: number; skipped: number; error?: string };
+};
+
+// ─── NTL (Nighttime Lights) ───────────────────────────────────────────────────
+
+export const fetchNtlSettlements = async (
+  municipio_id: number
+): Promise<NtlSettlementsResponse> => {
+  const { data } = await api.get('/api/ntl/settlements', { params: { municipio_id } });
+  return data;
+};
+
+export const fetchNtlSettlementsTop = async (limit = 50): Promise<NtlSettlementsResponse> => {
+  const { data } = await api.get('/api/ntl/settlements/top', { params: { limit } });
+  return data;
 };
 
 // ─── OSM ─────────────────────────────────────────────────────────────────────
