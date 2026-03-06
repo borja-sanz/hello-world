@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS competitors (
     geometry        GEOMETRY(Point, 4326),
     osm_id          BIGINT UNIQUE,
     verified        BOOLEAN DEFAULT FALSE,
-    source          VARCHAR(50) DEFAULT 'osm' CHECK (source IN ('osm', 'manual', 'import')),
+    source          VARCHAR(50) DEFAULT 'osm' CHECK (source IN ('osm', 'manual', 'import', 'google_places')),
     address         TEXT,
     municipio       VARCHAR(100),
     department      VARCHAR(100),
@@ -269,6 +269,13 @@ COMMENT ON TABLE ntl_settlements IS 'Sub-municipio lit settlement clusters from 
 -- ============================================================
 -- SCHEMA MIGRATIONS (idempotent ALTER TABLE additions)
 -- ============================================================
+
+-- Allow 'google_places' as a valid source for competitors (Google Places sync)
+ALTER TABLE competitors
+  DROP CONSTRAINT IF EXISTS competitors_source_check;
+ALTER TABLE competitors
+  ADD CONSTRAINT competitors_source_check
+    CHECK (source IN ('osm', 'manual', 'import', 'google_places'));
 
 -- Google Places POI source tracking on poi_cache
 ALTER TABLE poi_cache
