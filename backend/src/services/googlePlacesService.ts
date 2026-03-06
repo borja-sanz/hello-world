@@ -19,15 +19,73 @@ const PAGE_DELAY_MS = 2_000; // Google requires 2s between page_token requests
 
 // Competitor chains to search for — these are the main Guatemala retail chains
 // that compete with Despensa Familiar / Maxi Despensa in the D/E segment.
-const COMPETITOR_CHAINS: { query: string; chain: string }[] = [
-  { query: 'Super del Barrio Guatemala',       chain: 'Super del Barrio' },
-  { query: 'La Bodegona supermercado Guatemala', chain: 'La Bodegona' },
-  { query: 'La Torre supermercado Guatemala',   chain: 'La Torre' },
-  { query: 'Maxi Bodega Guatemala',             chain: 'Maxi Bodega' },
-  { query: 'Suma Express supermercado Guatemala', chain: 'Suma Express' },
-  { query: 'Econosuper Guatemala',              chain: 'Econosuper' },
-  { query: 'Super Más Guatemala',               chain: 'Super Más' },
-  { query: 'Unisuper Guatemala',                chain: 'Unisuper' },
+// Multiple queries per chain capture spelling/accent variants so Google Maps
+// returns a fuller set of locations (e.g. ~200 Super del Barrio exist but a
+// single query only surfaces ~60).
+const COMPETITOR_CHAINS: { queries: string[]; chain: string }[] = [
+  {
+    chain: 'Super del Barrio',
+    queries: [
+      'Super del Barrio Guatemala',
+      'Súper del Barrio Guatemala',
+      'Mi Super del Barrio Guatemala',
+      'Mi Súper del Barrio Guatemala',
+    ],
+  },
+  {
+    chain: 'La Bodegona',
+    queries: [
+      'La Bodegona supermercado Guatemala',
+      'Bodegona supermercado Guatemala',
+    ],
+  },
+  {
+    chain: 'La Torre',
+    queries: [
+      'La Torre supermercado Guatemala',
+      'Supermercados La Torre Guatemala',
+      'Super La Torre Guatemala',
+    ],
+  },
+  {
+    chain: 'Maxi Bodega',
+    queries: [
+      'Maxi Bodega Guatemala',
+      'Maxi Bodega supermercado Guatemala',
+    ],
+  },
+  {
+    chain: 'Suma Express',
+    queries: [
+      'Suma Express supermercado Guatemala',
+      'Súma Express Guatemala',
+      'Suma supermercado Guatemala',
+    ],
+  },
+  {
+    chain: 'Econosuper',
+    queries: [
+      'Econosuper Guatemala',
+      'Econo Super Guatemala',
+      'Econosuper supermercado Guatemala',
+    ],
+  },
+  {
+    chain: 'Super Más',
+    queries: [
+      'Super Más Guatemala',
+      'Super Mas Guatemala',
+      'Supermás Guatemala',
+    ],
+  },
+  {
+    chain: 'Unisuper',
+    queries: [
+      'Unisuper Guatemala',
+      'Uni Super Guatemala',
+      'Unisuper supermercado Guatemala',
+    ],
+  },
 ];
 
 interface PlacesResult {
@@ -122,17 +180,30 @@ export interface SyncResult {
 
 export async function syncCompetitorChain(
   chain: string,
-  query: string,
+  queries: string | string[],
   apiKey: string
 ): Promise<SyncResult> {
   const result: SyncResult = { chain, found: 0, inserted: 0, skipped: 0 };
+  const queryList = Array.isArray(queries) ? queries : [queries];
 
-  let places: PlacesResult[];
-  try {
-    places = await fetchAllPages(query, apiKey);
-  } catch (err: any) {
-    result.error = err.message;
-    return result;
+  // Fetch all queries and deduplicate by place_id before inserting
+  const seenPlaceIds = new Set<string>();
+  const places: PlacesResult[] = [];
+  for (const q of queryList) {
+    let pageResults: PlacesResult[];
+    try {
+      pageResults = await fetchAllPages(q, apiKey);
+    } catch (err: any) {
+      result.error = err.message;
+      return result;
+    }
+    for (const p of pageResults) {
+      if (!seenPlaceIds.has(p.place_id)) {
+        seenPlaceIds.add(p.place_id);
+        places.push(p);
+      }
+    }
+    if (queryList.length > 1) await sleep(500);
   }
 
   result.found = places.length;
@@ -195,9 +266,9 @@ export async function syncCompetitorChain(
 export async function syncAllCompetitors(apiKey: string): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
 
-  for (const { query, chain } of COMPETITOR_CHAINS) {
-    console.log(`[googlePlaces] Searching: ${chain}...`);
-    const r = await syncCompetitorChain(chain, query, apiKey);
+  for (const { queries, chain } of COMPETITOR_CHAINS) {
+    console.log(`[googlePlaces] Searching: ${chain} (${queries.length} queries)...`);
+    const r = await syncCompetitorChain(chain, queries, apiKey);
     results.push(r);
     console.log(
       `[googlePlaces] ${chain}: found=${r.found} inserted=${r.inserted} skipped=${r.skipped}${r.error ? ` error=${r.error}` : ''}`

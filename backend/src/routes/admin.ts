@@ -162,7 +162,7 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
 
 /** GET /api/admin/google-places/chains — list chains that will be searched */
 router.get('/google-places/chains', (_req: Request, res: Response) => {
-  res.json({ chains: COMPETITOR_CHAINS.map(c => ({ chain: c.chain, query: c.query })) });
+  res.json({ chains: COMPETITOR_CHAINS.map(c => ({ chain: c.chain, queries: c.queries })) });
 });
 
 /** POST /api/admin/google-places/sync — sync all competitor chains from Google Places.
@@ -205,7 +205,7 @@ router.post('/google-places/sync-chain', async (req: Request, res: Response, nex
     const entry = COMPETITOR_CHAINS.find(c => c.chain === chainName);
     if (!entry) throw new AppError(400, `Unknown chain "${chainName}". Call GET /api/admin/google-places/chains for valid options.`);
 
-    const result = await syncCompetitorChain(chainName, entry.query, apiKey);
+    const result = await syncCompetitorChain(chainName, entry.queries, apiKey);
     res.json(result);
   } catch (err) {
     next(err);
