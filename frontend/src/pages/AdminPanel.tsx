@@ -5,7 +5,7 @@ import {
   fetchAdminStats, fetchPoiStatus,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, importStoresCsv,
-  syncAllGooglePlacesCompetitors, syncGooglePlacesChain,
+  syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -179,6 +179,17 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
       setImportResult(null);
       await load();
     } catch { setMsg('❌ Error al eliminar tiendas'); }
+  };
+
+  const handleReclaimOwnStores = async () => {
+    if (!confirm('Esto buscará en la tabla de competidores tiendas llamadas "Maxi Despensa", "Maxi Bodega" o "Despensa Familiar" y las moverá a tus tiendas propias. ¿Continuar?')) return;
+    try {
+      const res = await reclaimOwnStores();
+      setMsg(`✅ ${res.message}`);
+      await load();
+    } catch (e: any) {
+      setMsg(`❌ ${e.response?.data?.error ?? 'Error al reclamar tiendas'}`);
+    }
   };
 
   const handleGoogleSyncChain = async (chain: string) => {
@@ -475,6 +486,24 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
           {/* ── Competitors tab ── */}
           {tab === 'competitors' && (
             <div className="space-y-5">
+
+              {/* Reclaim own stores */}
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-1">
+                  Corregir tiendas propias mal clasificadas
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
+                  Mueve a "Mis Tiendas" cualquier competidor cuyo nombre incluya
+                  <strong> Maxi Despensa</strong>, <strong>Maxi Bodega</strong> o <strong>Despensa Familiar</strong>.
+                </p>
+                <button
+                  onClick={handleReclaimOwnStores}
+                  className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
+                >
+                  Reclamar tiendas propias
+                </button>
+              </div>
+
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Sincronizar competidores desde Google Maps

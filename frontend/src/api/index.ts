@@ -47,6 +47,11 @@ export const clearAllStores = async () => {
   return data as { deleted: number };
 };
 
+export const reclaimOwnStores = async () => {
+  const { data } = await api.post('/api/admin/reclaim-own-stores');
+  return data as { moved: number; message: string };
+};
+
 export const tagStorePerformance = async (
   id: number, performance: string
 ) => {

@@ -136,6 +136,66 @@ router.delete('/stores/all', async (req: Request, res: Response, next: NextFunct
   }
 });
 
+/**
+ * POST /api/admin/reclaim-own-stores
+ * Moves misclassified own-brand competitors into the stores table.
+ * Targets rows in competitors whose chain or name matches our known brand names.
+ */
+router.post('/reclaim-own-stores', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Find all competitors that are actually our stores
+    const found = await pool.query(`
+      SELECT id, name, chain, lat, lng, address, municipio, department
+      FROM competitors
+      WHERE chain ILIKE ANY(ARRAY['%Maxi Despensa%','%Maxi Bodega%','%Despensa Familiar%'])
+         OR name  ILIKE ANY(ARRAY['%Maxi Despensa%','%Maxi Bodega%','%Despensa Familiar%'])
+    `);
+
+    if (found.rows.length === 0) {
+      return res.json({ moved: 0, message: 'No se encontraron tiendas propias mal clasificadas.' });
+    }
+
+    const client = await pool.connect();
+    let moved = 0;
+    try {
+      await client.query('BEGIN');
+
+      for (const row of found.rows) {
+        // Map chain/name to the correct store format
+        const nameUpper = ((row.chain || '') + ' ' + (row.name || '')).toUpperCase();
+        let format: string;
+        if (nameUpper.includes('MAXI')) {
+          format = 'Maxi Despensa';
+        } else {
+          format = 'Despensa Familiar';
+        }
+
+        await client.query(
+          `INSERT INTO stores (name, format, chain, lat, lng, address, municipio, department, status, source)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 'reclaimed')
+           ON CONFLICT DO NOTHING`,
+          [row.name, format, format, row.lat, row.lng,
+           row.address ?? null, row.municipio ?? null, row.department ?? null]
+        );
+
+        await client.query('DELETE FROM competitors WHERE id = $1', [row.id]);
+        moved++;
+      }
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    res.json({ moved, message: `${moved} tienda(s) propia(s) movidas de competidores a tiendas.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** GET /api/admin/stats — system stats */
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {
