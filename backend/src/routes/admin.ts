@@ -161,13 +161,20 @@ router.post('/reclaim-own-stores', async (_req: Request, res: Response, next: Ne
       await client.query('BEGIN');
 
       for (const row of found.rows) {
-        // Map chain/name to the correct store format
-        const nameUpper = ((row.chain || '') + ' ' + (row.name || '')).toUpperCase();
+        // Derive format from the store name only — the chain field in competitors
+        // was often set generically (e.g. all labelled "Maxi Despensa") so we
+        // must NOT use it for format detection.
+        const nameUpper = (row.name || '').toUpperCase();
         let format: string;
         if (nameUpper.includes('MAXI')) {
           format = 'Maxi Despensa';
-        } else {
+        } else if (nameUpper.includes('DESPENSA FAMILIAR')) {
           format = 'Despensa Familiar';
+        } else {
+          // Fallback: check original chain value only if name gives no signal
+          format = (row.chain || '').toUpperCase().includes('MAXI')
+            ? 'Maxi Despensa'
+            : 'Despensa Familiar';
         }
 
         // Skip if an identical store already exists (same name + coords)
@@ -188,15 +195,42 @@ router.post('/reclaim-own-stores', async (_req: Request, res: Response, next: Ne
         moved++;
       }
 
+      // Also correct any already-moved stores whose format was wrongly set:
+      // - name contains "Despensa Familiar" but format says "Maxi Despensa" → fix to Despensa Familiar
+      // - name contains "Maxi"              but format says "Despensa Familiar" → fix to Maxi Despensa
+      const fixResult = await client.query(`
+        UPDATE stores SET
+          format = CASE
+            WHEN name ILIKE '%Despensa Familiar%' THEN 'Despensa Familiar'
+            WHEN name ILIKE '%Maxi%'              THEN 'Maxi Despensa'
+            ELSE format
+          END,
+          chain = CASE
+            WHEN name ILIKE '%Despensa Familiar%' THEN 'Despensa Familiar'
+            WHEN name ILIKE '%Maxi%'              THEN 'Maxi Despensa'
+            ELSE chain
+          END
+        WHERE (name ILIKE '%Despensa Familiar%' OR name ILIKE '%Maxi Despensa%' OR name ILIKE '%Maxi Bodega%')
+          AND (
+            (name ILIKE '%Despensa Familiar%' AND format != 'Despensa Familiar') OR
+            (name ILIKE '%Maxi%'              AND format != 'Maxi Despensa')
+          )
+        RETURNING id
+      `);
+      const fixed = fixResult.rowCount ?? 0;
+
       await client.query('COMMIT');
+      res.json({
+        moved,
+        fixed,
+        message: `${moved} tienda(s) movidas de competidores. ${fixed > 0 ? `${fixed} formato(s) corregido(s) en tiendas existentes.` : ''}`.trim(),
+      });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
     } finally {
       client.release();
     }
-
-    res.json({ moved, message: `${moved} tienda(s) propia(s) movidas de competidores a tiendas.` });
   } catch (err) {
     next(err);
   }
