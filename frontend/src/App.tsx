@@ -3,14 +3,15 @@ import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import AdminPanel from './pages/AdminPanel';
 import {
-  fetchStores, fetchCompetitors,
+  fetchStores, fetchCompetitors, fetchCompetitorChains,
   fetchOpportunities, fetchBlueOceanOpportunities,
+  fetchSettlementOpportunities,
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
-  Store, Competitor, OpportunityScore, TradeAreaAnalysis,
+  Store, Competitor, OpportunityScore, SettlementScore, TradeAreaAnalysis,
   FilterState, LayerState, NtlSettlementsResponse, NtlSettlement, PoiCluster,
 } from './types';
 
@@ -25,13 +26,17 @@ const App: React.FC = () => {
   }, [isDark]);
 
   // ── Data state ────────────────────────────────────────────────────────────
-  const [stores,        setStores]        = useState<Store[]>([]);
-  const [competitors,   setCompetitors]   = useState<Competitor[]>([]);
-  const [opportunities, setOpportunities] = useState<OpportunityScore[]>([]);
-  const [tradeArea,     setTradeArea]     = useState<TradeAreaAnalysis | null>(null);
-  const [ntlData,       setNtlData]       = useState<NtlSettlementsResponse | null>(null);
-  const [ntlLoading,    setNtlLoading]    = useState(false);
-  const [poiClusters,   setPoiClusters]   = useState<PoiCluster[]>([]);
+  const [stores,            setStores]            = useState<Store[]>([]);
+  const [competitors,       setCompetitors]       = useState<Competitor[]>([]);
+  const [opportunities,     setOpportunities]     = useState<OpportunityScore[]>([]);
+  const [settlementScores,  setSettlementScores]  = useState<SettlementScore[]>([]);
+  const [chains,            setChains]            = useState<{ chain: string; count: number }[]>([]);
+  const [hiddenChains,      setHiddenChains]      = useState<string[]>([]);
+  const [hiddenFormats,     setHiddenFormats]     = useState<string[]>([]);
+  const [tradeArea,         setTradeArea]         = useState<TradeAreaAnalysis | null>(null);
+  const [ntlData,           setNtlData]           = useState<NtlSettlementsResponse | null>(null);
+  const [ntlLoading,        setNtlLoading]        = useState(false);
+  const [poiClusters,       setPoiClusters]       = useState<PoiCluster[]>([]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [loading,      setLoading]      = useState(false);
@@ -43,7 +48,7 @@ const App: React.FC = () => {
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
 
   const [layers, setLayers] = useState<LayerState>({
-    stores: true, competitors: true, opportunities: true, heatmap: true,
+    stores: true, competitors: true, opportunities: true, settlements: false,
   });
 
   const [filters, setFilters] = useState<FilterState>({
@@ -57,10 +62,14 @@ const App: React.FC = () => {
       fetchStores().catch(() => []),
       fetchCompetitors().catch(() => []),
       fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false })),
-    ]).then(([s, c, o]) => {
+      fetchCompetitorChains().catch(() => []),
+      fetchSettlementOpportunities({ limit: 200, min_pop: 500 }).catch(() => ({ count: 0, settlements: [] })),
+    ]).then(([s, c, o, ch, ss]) => {
       setStores(s);
       setCompetitors(c);
       setOpportunities(addCentroidsFromOpps(o.opportunities));
+      setChains(ch);
+      setSettlementScores(ss.settlements);
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -141,6 +150,28 @@ const App: React.FC = () => {
   const handleLayerToggle = useCallback((key: keyof LayerState) => {
     setLayers(l => ({ ...l, [key]: !l[key] }));
   }, []);
+
+  // ── Chain / format visibility toggles ────────────────────────────────────
+  const handleChainToggle = useCallback((chain: string) => {
+    setHiddenChains(prev =>
+      prev.includes(chain) ? prev.filter(c => c !== chain) : [...prev, chain]
+    );
+  }, []);
+
+  const handleFormatToggle = useCallback((format: string) => {
+    setHiddenFormats(prev =>
+      prev.includes(format) ? prev.filter(f => f !== format) : [...prev, format]
+    );
+  }, []);
+
+  // ── Filtered data passed to map ───────────────────────────────────────────
+  const visibleCompetitors = hiddenChains.length === 0
+    ? competitors
+    : competitors.filter(c => !hiddenChains.includes(c.chain));
+
+  const visibleStores = hiddenFormats.length === 0
+    ? stores
+    : stores.filter(s => !hiddenFormats.includes(s.format));
 
   // ── Opportunity card click → fly to municipio + load NTL settlements ──────
   const handleOppClick = useCallback(async (opp: OpportunityScore) => {
@@ -247,9 +278,10 @@ const App: React.FC = () => {
         {/* Map */}
         <div className="flex-1 relative">
           <MapView
-            stores={stores}
-            competitors={competitors}
+            stores={visibleStores}
+            competitors={visibleCompetitors}
             opportunities={opportunities}
+            settlementScores={settlementScores}
             layers={layers}
             tradeArea={tradeArea}
             onMapClick={handleMapClick}
@@ -281,6 +313,11 @@ const App: React.FC = () => {
           ntlLoading={ntlLoading}
           onNtlClose={() => { setNtlData(null); setPoiClusters([]); }}
           onSettlementClick={handleSettlementClick}
+          chains={chains}
+          hiddenChains={hiddenChains}
+          onChainToggle={handleChainToggle}
+          hiddenFormats={hiddenFormats}
+          onFormatToggle={handleFormatToggle}
         />
       </main>
 

@@ -15,6 +15,7 @@ export interface Competitor {
   source: string;
   address: string | null;
   municipio: string | null;
+  zona: string | null;
   department: string | null;
 }
 
@@ -30,7 +31,7 @@ export async function getCompetitorsNearPoint(
 ): Promise<NearbyCompetitor[]> {
   const result = await pool.query(
     `SELECT
-       id, name, chain, lat, lng, verified, source, address, municipio, department,
+       id, name, chain, lat, lng, verified, source, address, municipio, zona, department,
        ROUND(
          ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / 1000
        ) AS dist_km
@@ -100,6 +101,7 @@ export async function bulkCreateCompetitors(
     lng: number;
     address?: string | null;
     municipio?: string | null;
+    zona?: string | null;
     department?: string | null;
     notes?: string | null;
   }>
@@ -109,8 +111,8 @@ export async function bulkCreateCompetitors(
 
   for (const row of rows) {
     const result = await pool.query(
-      `INSERT INTO competitors (name, chain, lat, lng, address, municipio, department, notes, source, verified)
-       SELECT $1::text, $2::text, $3::numeric, $4::numeric, $5::text, $6::text, $7::text, $8::text, 'import', true
+      `INSERT INTO competitors (name, chain, lat, lng, address, municipio, zona, department, notes, source, verified)
+       SELECT $1::text, $2::text, $3::numeric, $4::numeric, $5::text, $6::text, $7::text, $8::text, $9::text, 'import', true
        WHERE NOT EXISTS (
          SELECT 1 FROM competitors
          WHERE name = $1
@@ -119,7 +121,7 @@ export async function bulkCreateCompetitors(
        )
        RETURNING id`,
       [row.name, row.chain, row.lat, row.lng,
-       row.address ?? null, row.municipio ?? null, row.department ?? null, row.notes ?? null]
+       row.address ?? null, row.municipio ?? null, row.zona ?? null, row.department ?? null, row.notes ?? null]
     );
     if ((result.rowCount ?? 0) > 0) inserted++;
     else skipped++;

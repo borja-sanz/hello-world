@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown } from '../types';
+import type { Store, Competitor, OpportunityScore, SettlementScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -98,6 +98,7 @@ interface MapViewProps {
   stores:              Store[];
   competitors:         Competitor[];
   opportunities:       OpportunityScore[];
+  settlementScores?:   SettlementScore[];
   layers:              LayerState;
   tradeArea:           TradeAreaAnalysis | null;
   onMapClick:          (lat: number, lng: number) => void;
@@ -113,7 +114,8 @@ interface MapViewProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const MapView: React.FC<MapViewProps> = ({
-  stores, competitors, opportunities, layers, tradeArea, onMapClick, loading, flyToTarget,
+  stores, competitors, opportunities, settlementScores = [], layers,
+  tradeArea, onMapClick, loading, flyToTarget,
   ntlSettlements = [], onNtlClick,
   poiClusters = [], onOppBubbleClick, onPoiClusterClick,
 }) => {
@@ -123,6 +125,7 @@ const MapView: React.FC<MapViewProps> = ({
     stores:        L.LayerGroup;
     competitors:   L.LayerGroup;
     opportunities: L.LayerGroup;
+    settlements:   L.LayerGroup;
     tradeArea:     L.LayerGroup;
     ntl:           L.LayerGroup;
     poiClusters:   L.LayerGroup;
@@ -147,6 +150,7 @@ const MapView: React.FC<MapViewProps> = ({
       stores:        L.layerGroup().addTo(map),
       competitors:   L.layerGroup().addTo(map),
       opportunities: L.layerGroup().addTo(map),
+      settlements:   L.layerGroup(),              // off by default
       tradeArea:     L.layerGroup().addTo(map),
       ntl:           L.layerGroup().addTo(map),
       poiClusters:   L.layerGroup().addTo(map),
@@ -222,8 +226,6 @@ const MapView: React.FC<MapViewProps> = ({
     group.clearLayers();
     if (!layers.opportunities) return;
 
-    const useHeatmap = layers.heatmap;
-
     opportunities.forEach((opp, i) => {
       if (!opp.centroid) return;
       const { lat, lng } = opp.centroid as any;
@@ -248,40 +250,55 @@ const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
-      const triggerOppClick = (e: L.LeafletMouseEvent) => {
+      const marker = L.marker([lat, lng], {
+        icon: rankIcon(rank, color),
+        zIndexOffset: rank <= 10 ? 100 : 0,
+      });
+      marker.bindPopup(popupHtml);
+      marker.on('click', (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
         if (onOppBubbleClick) onOppBubbleClick(opp);
-      };
-
-      if (useHeatmap) {
-        const radiusM = 9000;
-        const circle = L.circle([lat, lng], {
-          radius:      radiusM,
-          fillColor:   color,
-          color:       color,
-          weight:      1,
-          opacity:     0.5,
-          fillOpacity: 0.22,
-        });
-        circle.bindPopup(popupHtml);
-        group.addLayer(circle);
-        // Rank label on top of heatmap zone
-        const label = L.marker([lat, lng], { icon: rankIcon(rank, color), zIndexOffset: rank <= 10 ? 100 : 0 });
-        label.bindPopup(popupHtml);
-        label.on('click', triggerOppClick);
-        group.addLayer(label);
-      } else {
-        // Ranked badge marker
-        const marker = L.marker([lat, lng], {
-          icon: rankIcon(rank, color),
-          zIndexOffset: rank <= 10 ? 100 : 0,
-        });
-        marker.bindPopup(popupHtml);
-        marker.on('click', triggerOppClick);
-        group.addLayer(marker);
-      }
+      });
+      group.addLayer(marker);
     });
-  }, [opportunities, layers.opportunities, layers.heatmap, onOppBubbleClick]);
+  }, [opportunities, layers.opportunities, onOppBubbleClick]);
+
+  // ── Render settlement scores layer ────────────────────────────────────────
+  // Each settlement dot is colored by score (green/yellow/red) and sized by
+  // estimated population. This gives a sub-municipio opportunity view.
+  useEffect(() => {
+    const group = layersRef.current?.settlements;
+    if (!group) return;
+    group.clearLayers();
+    if (!layers.settlements || settlementScores.length === 0) return;
+
+    for (const s of settlementScores) {
+      if (!s.lat || !s.lng) continue;
+
+      const color = s.score >= 70 ? '#16a34a' : s.score >= 40 ? '#ca8a04' : '#dc2626';
+      const size  = s.score >= 70 ? 10 : s.score >= 40 ? 8 : 6;
+
+      const popupHtml = `
+        <div class="text-sm" style="min-width:160px">
+          <strong>${s.name}</strong>
+          <div style="color:#6b7280;font-size:11px">${s.municipio_name}, ${s.department}</div>
+          <div style="margin-top:4px">
+            Score: <strong style="color:${color}">${s.score}/100</strong>
+          </div>
+          <div style="font-size:11px;margin-top:2px">
+            Población est.: ${s.estimated_pop > 0 ? s.estimated_pop.toLocaleString() : '—'}<br/>
+            POIs cercanos: ${s.poi_count}<br/>
+            Competidores 3km: ${s.competitor_count}<br/>
+            ${s.nearest_store_km !== null ? `Tienda más cercana: ${s.nearest_store_km} km` : 'Sin cobertura propia'}
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker([s.lat, s.lng], { icon: circleIcon(color, size) });
+      marker.bindPopup(popupHtml);
+      group.addLayer(marker);
+    }
+  }, [settlementScores, layers.settlements]);
 
   // ── Render NTL glow circles ───────────────────────────────────────────────
   // Each settlement is rendered as two concentric circles: a larger transparent
@@ -443,6 +460,8 @@ const MapView: React.FC<MapViewProps> = ({
     else                      { map.removeLayer(lg.competitors); }
     if (layers.opportunities) { if (!map.hasLayer(lg.opportunities)) lg.opportunities.addTo(map); }
     else                      { map.removeLayer(lg.opportunities); }
+    if (layers.settlements)   { if (!map.hasLayer(lg.settlements))   lg.settlements.addTo(map); }
+    else                      { map.removeLayer(lg.settlements); }
   }, [layers]);
 
   return (

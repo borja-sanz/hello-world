@@ -39,6 +39,11 @@ const COLUMN_ALIASES: Record<string, string> = {
   competitor: 'comp_name',
   competidor: 'comp_name',
   cadena: 'chain',
+  zone: 'zona',
+  neighborhood: 'zona',
+  barrio: 'zona',
+  colonia: 'zona',
+  sector: 'zona',
 };
 
 /** Detect delimiter from the first line — handles Excel semicolon exports */
@@ -146,6 +151,7 @@ export interface CompetitorRow {
   lng: string;
   address?: string;
   municipio?: string;
+  zona?: string;
   department?: string;
   notes?: string;
 }

@@ -19,6 +19,10 @@ export interface Competitor {
   lng: number;
   verified: boolean;
   source: string;
+  address: string | null;
+  municipio: string | null;
+  zona: string | null;
+  department: string | null;
 }
 
 export interface Municipio {
@@ -106,7 +110,22 @@ export interface LayerState {
   stores: boolean;
   competitors: boolean;
   opportunities: boolean;
-  heatmap: boolean;
+  settlements: boolean;
+}
+
+export interface SettlementScore {
+  id: number;
+  name: string;
+  municipio_name: string;
+  department: string;
+  lat: number;
+  lng: number;
+  estimated_pop: number;
+  radiance_ntl: number;
+  poi_count: number;
+  competitor_count: number;
+  nearest_store_km: number | null;
+  score: number;
 }
 
 export interface FilterState {

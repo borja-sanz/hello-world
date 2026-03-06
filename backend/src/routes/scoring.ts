@@ -351,6 +351,78 @@ router.get('/poi-clusters/:id', async (req: Request, res: Response, next: NextFu
 });
 
 /**
+ * GET /api/scoring/settlements?limit=100&min_pop=500
+ *
+ * Scores all NTL settlements globally using a fast single SQL query.
+ * Score factors (0-100):
+ *   - Population  (0-40): estimated_pop from VIIRS calibration
+ *   - Commercial  (0-30): POI count within 2 km (economic activity proxy)
+ *   - Coverage gap(0-20): distance to nearest own store (further = bigger opportunity)
+ *   - Competition (0-10): inverse of competitor count within 3 km
+ *
+ * This is the sub-municipio opportunity ranking — useful when a full municipio
+ * is too coarse to make a siting decision.
+ */
+router.get('/settlements', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const limit  = Math.min(parseInt((req.query.limit as string) || '100'), 300);
+    const minPop = parseInt((req.query.min_pop as string) || '500');
+
+    const result = await pool.query(
+      `WITH base AS (
+         SELECT
+           s.id, s.name, s.municipio_id,
+           s.lat::float   AS lat,
+           s.lng::float   AS lng,
+           s.radiance_ntl::float  AS radiance_ntl,
+           COALESCE(s.estimated_pop, 0)::int AS estimated_pop,
+           s.area_km2,
+           m.name       AS municipio_name,
+           m.department,
+           -- Economic activity: POI density within 2 km
+           (SELECT COUNT(*) FROM poi_cache p
+            WHERE p.geometry IS NOT NULL
+              AND ST_DWithin(p.geometry::geography, s.geometry::geography, 2000)
+           )::int AS poi_count,
+           -- Competition pressure: competitors within 3 km
+           (SELECT COUNT(*) FROM competitors c
+            WHERE c.geometry IS NOT NULL
+              AND ST_DWithin(c.geometry::geography, s.geometry::geography, 3000)
+           )::int AS competitor_count,
+           -- Coverage gap: distance to nearest open own store (km), null if none
+           (SELECT ROUND(MIN(ST_Distance(st.geometry::geography, s.geometry::geography)) / 1000)
+            FROM stores st
+            WHERE st.geometry IS NOT NULL AND st.status = 'open'
+           ) AS nearest_store_km
+         FROM ntl_settlements s
+         JOIN municipios m ON s.municipio_id = m.id
+         WHERE s.geometry IS NOT NULL
+           AND COALESCE(s.estimated_pop, 0) >= $2
+       )
+       SELECT *,
+         LEAST(100, GREATEST(0,
+           -- Population factor: 1 000 pop = 40 pts (cap)
+           LEAST(40, estimated_pop / 1000.0) +
+           -- Commercial factor: 10 POIs = 30 pts (cap)
+           LEAST(30, poi_count * 3.0) +
+           -- Coverage gap: 10 km from nearest store = 20 pts (cap)
+           LEAST(20, COALESCE(nearest_store_km, 50) * 2.0) +
+           -- Competition inverse: 0 competitors = 10 pts, -2 per competitor
+           GREATEST(0, 10 - competitor_count * 2)
+         ))::int AS score
+       FROM base
+       ORDER BY score DESC
+       LIMIT $1`,
+      [limit, minPop]
+    );
+
+    res.json({ count: result.rows.length, settlements: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/scoring/calculate-all
  * Recalculates scores for all municipios. Can take 30–60s for full dataset.
  */

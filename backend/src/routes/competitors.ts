@@ -32,7 +32,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await pool.query(
-      `SELECT id, name, chain, lat, lng, verified, source, address, municipio, department
+      `SELECT id, name, chain, lat, lng, verified, source, address, municipio, zona, department
        FROM competitors ${where}
        ORDER BY chain, name`,
       params
@@ -94,7 +94,7 @@ router.get('/chains', async (_req: Request, res: Response, next: NextFunction) =
 router.get('/:id', validateId, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, chain, lat, lng, osm_id, verified, source, address, municipio, department, notes
+      `SELECT id, name, chain, lat, lng, osm_id, verified, source, address, municipio, zona, department, notes
        FROM competitors WHERE id = $1`,
       [parseInt(req.params.id)]
     );
@@ -144,6 +144,7 @@ router.post(
           lng,
           address: r.address || null,
           municipio,
+          zona: r.zona || null,
           department,
           notes: r.notes || null,
         };
@@ -166,7 +167,7 @@ router.post(
 /** POST /api/competitors — add a competitor manually */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, chain, lat, lng, address, municipio, department, notes } = req.body;
+    const { name, chain, lat, lng, address, municipio, zona, department, notes } = req.body;
 
     if (!chain) throw new AppError(400, 'chain is required');
     const latNum = parseFloat(lat);
@@ -176,11 +177,11 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO competitors (name, chain, lat, lng, address, municipio, department, notes, source, verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual', true)
+      `INSERT INTO competitors (name, chain, lat, lng, address, municipio, zona, department, notes, source, verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual', true)
        RETURNING id, name, chain, lat, lng, verified, source`,
       [name ?? chain, chain, latNum, lngNum, address ?? null,
-       municipio ?? null, department ?? null, notes ?? null]
+       municipio ?? null, zona ?? null, department ?? null, notes ?? null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -193,7 +194,7 @@ router.put('/:id', validateId, async (req: Request, res: Response, next: NextFun
   try {
     const fields: string[] = [];
     const params: any[] = [];
-    const allowed = ['name', 'chain', 'lat', 'lng', 'address', 'municipio', 'department', 'notes', 'verified'];
+    const allowed = ['name', 'chain', 'lat', 'lng', 'address', 'municipio', 'zona', 'department', 'notes', 'verified'];
 
     for (const key of allowed) {
       if (key in req.body && req.body[key] !== undefined) {

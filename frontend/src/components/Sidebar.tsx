@@ -26,12 +26,18 @@ interface Props {
   ntlLoading?:        boolean;
   onNtlClose?:        () => void;
   onSettlementClick?: (s: NtlSettlement) => void;
+  chains:             { chain: string; count: number }[];
+  hiddenChains:       string[];
+  onChainToggle:      (chain: string) => void;
+  hiddenFormats:      string[];
+  onFormatToggle:     (format: string) => void;
 }
 
 const Sidebar: React.FC<Props> = ({
   opportunities, tradeArea, filters, layers, loading, calculating,
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
   ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
+  chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -95,6 +101,11 @@ const Sidebar: React.FC<Props> = ({
             onLayerToggle={onLayerToggle}
             onCalculate={onCalculate}
             calculating={calculating}
+            chains={chains}
+            hiddenChains={hiddenChains}
+            onChainToggle={onChainToggle}
+            hiddenFormats={hiddenFormats}
+            onFormatToggle={onFormatToggle}
           />
 
           {/* Trade area panel */}

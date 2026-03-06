@@ -82,11 +82,15 @@ CREATE TABLE IF NOT EXISTS competitors (
     source          VARCHAR(50) DEFAULT 'osm' CHECK (source IN ('osm', 'manual', 'import', 'google_places')),
     address         TEXT,
     municipio       VARCHAR(100),
+    zona            VARCHAR(100),
     department      VARCHAR(100),
     notes           TEXT,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add zona to existing databases (safe to run on fresh DBs too)
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS zona VARCHAR(100);
 
 CREATE OR REPLACE FUNCTION update_competitor_geometry()
 RETURNS TRIGGER AS $$
