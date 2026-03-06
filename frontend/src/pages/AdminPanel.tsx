@@ -165,7 +165,10 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportResult(result);
       await load();
     } catch (e: any) {
-      setImportResult({ error: e.response?.data?.error ?? 'Error al importar' });
+      setImportResult({
+        error: e.response?.data?.error ?? 'Error al importar',
+        validation_errors: e.response?.data?.errors,
+      });
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -482,7 +485,17 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                       : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
                   }`}>
                     {importResult.error ? (
-                      <>❌ {importResult.error}</>
+                      <>
+                        ❌ {importResult.error}
+                        {(importResult.validation_errors?.length ?? 0) > 0 && (
+                          <ul className="mt-1 text-xs opacity-80 list-disc list-inside">
+                            {importResult.validation_errors!.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}
+                            {importResult.validation_errors!.length > 10 && (
+                              <li>…y {importResult.validation_errors!.length - 10} más</li>
+                            )}
+                          </ul>
+                        )}
+                      </>
                     ) : (
                       <>
                         ✅ {importResult.inserted} tiendas importadas
