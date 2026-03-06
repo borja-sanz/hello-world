@@ -68,6 +68,20 @@ export interface TradeAreaRing {
   saturation_index: number;
 }
 
+export interface PoiBreakdown {
+  marketplace: number;
+  bank: number;
+  pharmacy: number;
+  hospital: number;
+  school: number;
+  atm: number;
+  money_transfer: number;
+  supermarket: number;
+  fuel: number;
+  bus_station: number;
+  hardware: number;
+}
+
 export interface TradeAreaAnalysis {
   center: { lat: number; lng: number };
   municipio_name: string | null;
@@ -78,6 +92,7 @@ export interface TradeAreaAnalysis {
   suggested_format: string | null;
   reasoning: string;
   rings: TradeAreaRing[];
+  poi_breakdown: PoiBreakdown;
 }
 
 export interface LayerState {

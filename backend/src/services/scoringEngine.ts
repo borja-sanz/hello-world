@@ -48,11 +48,26 @@ export interface OpportunityScore {
   reasoning: string;
 }
 
+export interface PoiBreakdown {
+  marketplace: number;
+  bank: number;
+  pharmacy: number;
+  hospital: number;
+  school: number;
+  atm: number;
+  money_transfer: number;
+  supermarket: number;
+  fuel: number;
+  bus_station: number;
+  hardware: number;
+}
+
 export interface TradeAreaAnalysis extends OpportunityScore {
   center: { lat: number; lng: number };
   municipio_name: string | null;
   municipio_population: number | null;
   rings: TradeAreaRing[];
+  poi_breakdown: PoiBreakdown;
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -779,16 +794,52 @@ async function buildRing(
   };
 }
 
+async function fetchPoiBreakdown(lat: number, lng: number): Promise<PoiBreakdown> {
+  const geo = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`;
+  const result = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN poi_type IN ('marketplace','market') THEN 1 END), 0) AS marketplace,
+       COALESCE(SUM(CASE WHEN poi_type = 'bank'           THEN 1 END), 0) AS bank,
+       COALESCE(SUM(CASE WHEN poi_type = 'pharmacy'       THEN 1 END), 0) AS pharmacy,
+       COALESCE(SUM(CASE WHEN poi_type = 'hospital'       THEN 1 END), 0) AS hospital,
+       COALESCE(SUM(CASE WHEN poi_type = 'school'         THEN 1 END), 0) AS school,
+       COALESCE(SUM(CASE WHEN poi_type = 'atm'            THEN 1 END), 0) AS atm,
+       COALESCE(SUM(CASE WHEN poi_type = 'money_transfer' THEN 1 END), 0) AS money_transfer,
+       COALESCE(SUM(CASE WHEN poi_type = 'supermarket'    THEN 1 END), 0) AS supermarket,
+       COALESCE(SUM(CASE WHEN poi_type = 'fuel'           THEN 1 END), 0) AS fuel,
+       COALESCE(SUM(CASE WHEN poi_type = 'bus_station'    THEN 1 END), 0) AS bus_station,
+       COALESCE(SUM(CASE WHEN poi_type = 'hardware'       THEN 1 END), 0) AS hardware
+     FROM poi_cache
+     WHERE ST_DWithin(geometry::geography, ${geo}, 5000)`,
+    [lat, lng]
+  );
+  const r = result.rows[0];
+  return {
+    marketplace:    parseInt(r.marketplace),
+    bank:           parseInt(r.bank),
+    pharmacy:       parseInt(r.pharmacy),
+    hospital:       parseInt(r.hospital),
+    school:         parseInt(r.school),
+    atm:            parseInt(r.atm),
+    money_transfer: parseInt(r.money_transfer),
+    supermarket:    parseInt(r.supermarket),
+    fuel:           parseInt(r.fuel),
+    bus_station:    parseInt(r.bus_station),
+    hardware:       parseInt(r.hardware),
+  };
+}
+
 export async function analyzeTradeArea(
   lat: number,
   lng: number
 ): Promise<TradeAreaAnalysis> {
-  const [cfg, score, ring3, ring5, ring10] = await Promise.all([
+  const [cfg, score, ring3, ring5, ring10, poi_breakdown] = await Promise.all([
     loadCalibrationConfig(),
     scorePoint(lat, lng),
     buildRing(lat, lng, 3),
     buildRing(lat, lng, 5),
     buildRing(lat, lng, 10),
+    fetchPoiBreakdown(lat, lng),
   ]);
 
   // Re-score using the already-loaded config to avoid double DB hit
@@ -800,6 +851,7 @@ export async function analyzeTradeArea(
     municipio_name:       refined.municipio_name ?? null,
     municipio_population: ring10.population,
     rings: [ring3, ring5, ring10],
+    poi_breakdown,
   };
 }
 

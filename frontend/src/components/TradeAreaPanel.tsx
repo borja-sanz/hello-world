@@ -1,6 +1,20 @@
 import React from 'react';
 import ScoreBadge from './ScoreBadge';
-import type { TradeAreaAnalysis } from '../types';
+import type { TradeAreaAnalysis, PoiBreakdown } from '../types';
+
+const POI_LABELS: { key: keyof PoiBreakdown; label: string; icon: string; weight: number }[] = [
+  { key: 'marketplace',    label: 'Mercado',          icon: '🏪', weight: 3.0 },
+  { key: 'bank',           label: 'Banco',            icon: '🏦', weight: 2.0 },
+  { key: 'pharmacy',       label: 'Farmacia',         icon: '💊', weight: 1.5 },
+  { key: 'hospital',       label: 'Hospital',         icon: '🏥', weight: 1.0 },
+  { key: 'school',         label: 'Escuela',          icon: '🏫', weight: 1.0 },
+  { key: 'atm',            label: 'Cajero (ATM)',     icon: '🏧', weight: 1.0 },
+  { key: 'money_transfer', label: 'Remesas',          icon: '💸', weight: 1.0 },
+  { key: 'supermarket',    label: 'Supermercado',     icon: '🛒', weight: 1.0 },
+  { key: 'bus_station',    label: 'Terminal/Bus',     icon: '🚌', weight: 1.2 },
+  { key: 'fuel',           label: 'Gasolinera',       icon: '⛽', weight: 0.8 },
+  { key: 'hardware',       label: 'Ferretería',       icon: '🔧', weight: 1.0 },
+];
 
 interface Props {
   analysis: TradeAreaAnalysis;
@@ -8,7 +22,10 @@ interface Props {
 }
 
 const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
-  const { rings, score, recommendation, suggested_format, reasoning, municipio_name } = analysis;
+  const { rings, score, recommendation, suggested_format, reasoning, municipio_name, poi_breakdown } = analysis;
+  const presentPois = poi_breakdown
+    ? POI_LABELS.filter(p => poi_breakdown[p.key] > 0)
+    : [];
 
   return (
     <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -44,6 +61,25 @@ const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
       {reasoning && (
         <div className="px-3 pb-2 text-xs text-gray-500 dark:text-gray-400 italic">
           {reasoning}
+        </div>
+      )}
+
+      {/* POI breakdown */}
+      {presentPois.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            Puntos de interés cercanos (5km)
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {presentPois.map(({ key, label, icon }) => (
+              <span
+                key={key}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+              >
+                {icon} {poi_breakdown[key]} {label}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
