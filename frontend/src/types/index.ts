@@ -95,6 +95,13 @@ export interface TradeAreaAnalysis {
   poi_breakdown: PoiBreakdown;
 }
 
+export interface PoiCluster {
+  lat: number;
+  lng: number;
+  poi_count: number;
+  breakdown: PoiBreakdown;
+}
+
 export interface LayerState {
   stores: boolean;
   competitors: boolean;

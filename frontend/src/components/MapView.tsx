@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement } from '../types';
+import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -49,6 +49,35 @@ function starIcon(color: string): L.DivIcon {
   });
 }
 
+function poiClusterIcon(count: number): L.DivIcon {
+  const size = count >= 10 ? 26 : count >= 5 ? 22 : 18;
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;border-radius:4px;
+             background:#0891b2;border:2px solid white;
+             box-shadow:0 1px 4px rgba(0,0,0,.6);
+             display:flex;align-items:center;justify-content:center;
+             font-size:10px;font-weight:700;color:white;
+             font-family:sans-serif;line-height:1;">${count}</div>`,
+    className: '',
+    iconSize:   [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+const POI_LABEL_MAP: Partial<Record<keyof PoiBreakdown, string>> = {
+  marketplace:    '🏪 Mercado',
+  bank:           '🏦 Banco',
+  pharmacy:       '💊 Farmacia',
+  hospital:       '🏥 Hospital',
+  school:         '🏫 Escuela',
+  atm:            '🏧 Cajero',
+  money_transfer: '💸 Remesas',
+  supermarket:    '🛒 Supermercado',
+  bus_station:    '🚌 Terminal',
+  fuel:           '⛽ Gasolinera',
+  hardware:       '🔧 Ferretería',
+};
+
 const STORE_COLORS: Record<string, string> = {
   'Despensa Familiar': '#16a34a',
   'Maxi Despensa':     '#14532d',
@@ -66,16 +95,19 @@ const SCORE_COLORS = {
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface MapViewProps {
-  stores:           Store[];
-  competitors:      Competitor[];
-  opportunities:    OpportunityScore[];
-  layers:           LayerState;
-  tradeArea:        TradeAreaAnalysis | null;
-  onMapClick:       (lat: number, lng: number) => void;
-  loading:          boolean;
-  flyToTarget?:     { lat: number; lng: number; zoom?: number } | null;
-  ntlSettlements?:  NtlSettlement[];
-  onNtlClick?:      (s: NtlSettlement) => void;
+  stores:              Store[];
+  competitors:         Competitor[];
+  opportunities:       OpportunityScore[];
+  layers:              LayerState;
+  tradeArea:           TradeAreaAnalysis | null;
+  onMapClick:          (lat: number, lng: number) => void;
+  loading:             boolean;
+  flyToTarget?:        { lat: number; lng: number; zoom?: number } | null;
+  ntlSettlements?:     NtlSettlement[];
+  onNtlClick?:         (s: NtlSettlement) => void;
+  poiClusters?:        PoiCluster[];
+  onOppBubbleClick?:   (opp: OpportunityScore) => void;
+  onPoiClusterClick?:  (c: PoiCluster) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -83,6 +115,7 @@ interface MapViewProps {
 const MapView: React.FC<MapViewProps> = ({
   stores, competitors, opportunities, layers, tradeArea, onMapClick, loading, flyToTarget,
   ntlSettlements = [], onNtlClick,
+  poiClusters = [], onOppBubbleClick, onPoiClusterClick,
 }) => {
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
@@ -92,6 +125,7 @@ const MapView: React.FC<MapViewProps> = ({
     opportunities: L.LayerGroup;
     tradeArea:     L.LayerGroup;
     ntl:           L.LayerGroup;
+    poiClusters:   L.LayerGroup;
   } | null>(null);
 
   // ── Initialize map once ───────────────────────────────────────────────────
@@ -115,6 +149,7 @@ const MapView: React.FC<MapViewProps> = ({
       opportunities: L.layerGroup().addTo(map),
       tradeArea:     L.layerGroup().addTo(map),
       ntl:           L.layerGroup().addTo(map),
+      poiClusters:   L.layerGroup().addTo(map),
     };
 
     layersRef.current = groups;
@@ -213,6 +248,11 @@ const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
+      const triggerOppClick = (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        if (onOppBubbleClick) onOppBubbleClick(opp);
+      };
+
       if (useHeatmap) {
         const radiusM = 9000;
         const circle = L.circle([lat, lng], {
@@ -228,6 +268,7 @@ const MapView: React.FC<MapViewProps> = ({
         // Rank label on top of heatmap zone
         const label = L.marker([lat, lng], { icon: rankIcon(rank, color), zIndexOffset: rank <= 10 ? 100 : 0 });
         label.bindPopup(popupHtml);
+        label.on('click', triggerOppClick);
         group.addLayer(label);
       } else {
         // Ranked badge marker
@@ -236,10 +277,11 @@ const MapView: React.FC<MapViewProps> = ({
           zIndexOffset: rank <= 10 ? 100 : 0,
         });
         marker.bindPopup(popupHtml);
+        marker.on('click', triggerOppClick);
         group.addLayer(marker);
       }
     });
-  }, [opportunities, layers.opportunities, layers.heatmap]);
+  }, [opportunities, layers.opportunities, layers.heatmap, onOppBubbleClick]);
 
   // ── Render NTL glow circles ───────────────────────────────────────────────
   // Each settlement is rendered as two concentric circles: a larger transparent
@@ -312,6 +354,42 @@ const MapView: React.FC<MapViewProps> = ({
       group.addLayer(core);
     }
   }, [ntlSettlements, onNtlClick]);
+
+  // ── Render POI cluster layer ───────────────────────────────────────────────
+  useEffect(() => {
+    const group = layersRef.current?.poiClusters;
+    if (!group) return;
+    group.clearLayers();
+    if (!poiClusters || poiClusters.length === 0) return;
+
+    for (const c of poiClusters) {
+      if (!c.lat || !c.lng) continue;
+
+      const breakdownLines = (Object.entries(c.breakdown) as [keyof PoiBreakdown, number][])
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `${v}× ${POI_LABEL_MAP[k] ?? k}`)
+        .join('<br/>');
+
+      const popupHtml = `
+        <div class="text-sm" style="min-width:150px">
+          <strong style="color:#0891b2">Centro comercial detectado</strong>
+          <div style="color:#6b7280;font-size:11px;margin-top:2px">
+            ${c.poi_count} puntos de interés<br/>
+            ${breakdownLines}
+          </div>
+          <div style="font-size:10px;color:#9ca3af;margin-top:4px">Clic para analizar área</div>
+        </div>
+      `;
+
+      const marker = L.marker([c.lat, c.lng], { icon: poiClusterIcon(c.poi_count) });
+      marker.bindPopup(popupHtml);
+      marker.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        if (onPoiClusterClick) onPoiClusterClick(c);
+      });
+      group.addLayer(marker);
+    }
+  }, [poiClusters, onPoiClusterClick]);
 
   // ── flyToTarget: pan/zoom map when a sidebar card is clicked ─────────────
   useEffect(() => {
@@ -415,6 +493,15 @@ const MapView: React.FC<MapViewProps> = ({
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#fde047', boxShadow: '0 0 4px 2px #fde04780' }} />
               <span className="text-gray-600 dark:text-gray-400">Luces nocturnas</span>
+            </div>
+          </>
+        )}
+        {poiClusters.length > 0 && (
+          <>
+            <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#0891b2' }} />
+              <span className="text-gray-600 dark:text-gray-400">Centro comercial (POI)</span>
             </div>
           </>
         )}

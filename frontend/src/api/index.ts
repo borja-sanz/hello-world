@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type {
   Store, Competitor, Municipio, OpportunityScore,
-  TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse,
+  TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse, PoiCluster,
 } from '../types';
 
 // In production (Render), VITE_API_URL is set to '' so requests go to
@@ -173,6 +173,13 @@ export const fetchSubMunicipioScores = async (
   municipioId: number, params?: { limit?: number; min_pop?: number }
 ): Promise<{ municipio_id: number; count: number; settlements: import('../types').NtlSettlement[] }> => {
   const { data } = await api.get(`/api/scoring/sub-municipio/${municipioId}`, { params });
+  return data;
+};
+
+export const fetchPoiClusters = async (
+  municipioId: number
+): Promise<{ municipio_id: number; count: number; clusters: PoiCluster[] }> => {
+  const { data } = await api.get(`/api/scoring/poi-clusters/${municipioId}`);
   return data;
 };
 

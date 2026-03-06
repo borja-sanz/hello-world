@@ -274,6 +274,83 @@ router.post('/trade-area', async (req: Request, res: Response, next: NextFunctio
 });
 
 /**
+ * GET /api/scoring/poi-clusters/:id
+ * Returns spatial clusters of POIs within a municipio, derived from poi_cache.
+ * Clusters are built by rounding lat/lng to 2 decimal places (~1 km grid cells).
+ * Useful for identifying commercial village/town centers below the municipio level.
+ */
+router.get('/poi-clusters/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) throw new AppError(400, 'municipio id required');
+
+    // Get municipio centroid + area to compute search radius
+    const mResult = await pool.query(
+      `SELECT lat, lng,
+              COALESCE(ST_Area(centroid_geojson::geography) / 1000000.0, 0) AS area_km2
+       FROM municipios WHERE id = $1`,
+      [id]
+    );
+    if (!mResult.rows.length) throw new AppError(404, 'Municipio not found');
+
+    const { lat, lng, area_km2 } = mResult.rows[0];
+    const radiusKm = Math.max(20, Math.round(Math.sqrt(parseFloat(area_km2) / Math.PI) + 5));
+
+    const result = await pool.query(
+      `SELECT
+         ROUND(lat::numeric, 2)  AS cluster_lat,
+         ROUND(lng::numeric, 2)  AS cluster_lng,
+         COUNT(*)                                                              AS poi_count,
+         SUM(CASE WHEN poi_type IN ('marketplace','market') THEN 1 ELSE 0 END) AS marketplace,
+         SUM(CASE WHEN poi_type = 'bank'            THEN 1 ELSE 0 END)         AS bank,
+         SUM(CASE WHEN poi_type = 'pharmacy'        THEN 1 ELSE 0 END)         AS pharmacy,
+         SUM(CASE WHEN poi_type = 'hospital'        THEN 1 ELSE 0 END)         AS hospital,
+         SUM(CASE WHEN poi_type = 'school'          THEN 1 ELSE 0 END)         AS school,
+         SUM(CASE WHEN poi_type = 'atm'             THEN 1 ELSE 0 END)         AS atm,
+         SUM(CASE WHEN poi_type = 'money_transfer'  THEN 1 ELSE 0 END)         AS money_transfer,
+         SUM(CASE WHEN poi_type = 'supermarket'     THEN 1 ELSE 0 END)         AS supermarket,
+         SUM(CASE WHEN poi_type = 'fuel'            THEN 1 ELSE 0 END)         AS fuel,
+         SUM(CASE WHEN poi_type = 'bus_station'     THEN 1 ELSE 0 END)         AS bus_station,
+         SUM(CASE WHEN poi_type = 'hardware'        THEN 1 ELSE 0 END)         AS hardware
+       FROM poi_cache
+       WHERE ST_DWithin(
+               geometry::geography,
+               ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+               $3
+             )
+       GROUP BY ROUND(lat::numeric, 2), ROUND(lng::numeric, 2)
+       HAVING COUNT(*) >= 2
+       ORDER BY COUNT(*) DESC
+       LIMIT 30`,
+      [parseFloat(lat), parseFloat(lng), radiusKm * 1000]
+    );
+
+    const clusters = result.rows.map(r => ({
+      lat:       parseFloat(r.cluster_lat),
+      lng:       parseFloat(r.cluster_lng),
+      poi_count: parseInt(r.poi_count),
+      breakdown: {
+        marketplace:    parseInt(r.marketplace),
+        bank:           parseInt(r.bank),
+        pharmacy:       parseInt(r.pharmacy),
+        hospital:       parseInt(r.hospital),
+        school:         parseInt(r.school),
+        atm:            parseInt(r.atm),
+        money_transfer: parseInt(r.money_transfer),
+        supermarket:    parseInt(r.supermarket),
+        fuel:           parseInt(r.fuel),
+        bus_station:    parseInt(r.bus_station),
+        hardware:       parseInt(r.hardware),
+      },
+    }));
+
+    res.json({ municipio_id: id, count: clusters.length, clusters });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/scoring/calculate-all
  * Recalculates scores for all municipios. Can take 30–60s for full dataset.
  */

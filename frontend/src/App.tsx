@@ -6,12 +6,12 @@ import {
   fetchStores, fetchCompetitors,
   fetchOpportunities, fetchBlueOceanOpportunities,
   analyzeTradeArea, calculateAllScores,
-  fetchNtlSettlements, fetchSubMunicipioScores,
+  fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
   Store, Competitor, OpportunityScore, TradeAreaAnalysis,
-  FilterState, LayerState, NtlSettlementsResponse, NtlSettlement,
+  FilterState, LayerState, NtlSettlementsResponse, NtlSettlement, PoiCluster,
 } from './types';
 
 const App: React.FC = () => {
@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [tradeArea,     setTradeArea]     = useState<TradeAreaAnalysis | null>(null);
   const [ntlData,       setNtlData]       = useState<NtlSettlementsResponse | null>(null);
   const [ntlLoading,    setNtlLoading]    = useState(false);
+  const [poiClusters,   setPoiClusters]   = useState<PoiCluster[]>([]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [loading,      setLoading]      = useState(false);
@@ -148,13 +149,15 @@ const App: React.FC = () => {
       const lng = opp.centroid.lng as unknown as number;
       setFlyToTarget({ lat, lng, zoom: 11 });
     }
-    // Load NTL settlements AND sub-municipio scores in parallel
+    // Load NTL settlements, sub-municipio scores, and POI clusters in parallel
     setNtlData(null);
+    setPoiClusters([]);
     setNtlLoading(true);
     try {
-      const [ntlResult, scoreResult] = await Promise.allSettled([
+      const [ntlResult, scoreResult, poiResult] = await Promise.allSettled([
         fetchNtlSettlements(opp.municipio_id),
         fetchSubMunicipioScores(opp.municipio_id, { limit: 10 }),
+        fetchPoiClusters(opp.municipio_id),
       ]);
 
       if (ntlResult.status === 'fulfilled') {
@@ -175,6 +178,9 @@ const App: React.FC = () => {
           ntl.settlements.sort((a, b) => (b.score ?? b.radiance_ntl) - (a.score ?? a.radiance_ntl));
         }
         setNtlData(ntl);
+      }
+      if (poiResult.status === 'fulfilled') {
+        setPoiClusters(poiResult.value.clusters);
       }
     } catch {
       // NTL data is optional — silently skip if unavailable
@@ -251,6 +257,9 @@ const App: React.FC = () => {
             flyToTarget={flyToTarget}
             ntlSettlements={ntlData?.settlements}
             onNtlClick={handleSettlementClick}
+            poiClusters={poiClusters}
+            onOppBubbleClick={handleOppClick}
+            onPoiClusterClick={(c) => handleMapClick(c.lat, c.lng)}
           />
         </div>
 
@@ -270,7 +279,7 @@ const App: React.FC = () => {
           onOpenAdmin={() => setShowAdmin(true)}
           ntlData={ntlData}
           ntlLoading={ntlLoading}
-          onNtlClose={() => { setNtlData(null); }}
+          onNtlClose={() => { setNtlData(null); setPoiClusters([]); }}
           onSettlementClick={handleSettlementClick}
         />
       </main>
