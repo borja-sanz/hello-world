@@ -310,4 +310,47 @@ router.post('/load-viirs', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
+/** POST /api/admin/migrate — apply missing schema columns to production DB.
+ *  Safe to run multiple times (uses IF NOT EXISTS).
+ *  Header: Authorization: Bearer <ADMIN_SECRET>
+ */
+router.post('/migrate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const secret = process.env.ADMIN_SECRET;
+    const auth   = req.headers.authorization;
+    if (secret && auth !== `Bearer ${secret}`) {
+      throw new AppError(401, 'Unauthorized — provide Authorization: Bearer <ADMIN_SECRET>');
+    }
+
+    const migrations: { name: string; sql: string }[] = [
+      {
+        name: 'poi_cache.source column',
+        sql:  `ALTER TABLE poi_cache ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'osm'`,
+      },
+      {
+        name: 'municipios.drive_time_capital_min column',
+        sql:  `ALTER TABLE municipios ADD COLUMN IF NOT EXISTS drive_time_capital_min INTEGER`,
+      },
+      {
+        name: 'municipios.drive_time_capital_min index',
+        sql:  `CREATE INDEX IF NOT EXISTS municipios_drive_time_idx ON municipios (drive_time_capital_min) WHERE drive_time_capital_min IS NOT NULL`,
+      },
+    ];
+
+    const results: { name: string; status: string; error?: string }[] = [];
+    for (const m of migrations) {
+      try {
+        await pool.query(m.sql);
+        results.push({ name: m.name, status: 'ok' });
+      } catch (err: any) {
+        results.push({ name: m.name, status: 'error', error: err.message });
+      }
+    }
+
+    res.json({ message: 'Migration complete', results });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
