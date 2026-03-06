@@ -41,6 +41,12 @@ const COLUMN_ALIASES: Record<string, string> = {
   cadena: 'chain',
 };
 
+/** Detect delimiter from the first line — handles Excel semicolon exports */
+function detectDelimiter(buffer: Buffer): string {
+  const firstLine = buffer.toString('utf8').split(/\r?\n/)[0] ?? '';
+  return firstLine.includes(';') ? ';' : ',';
+}
+
 function normalizeRecord(record: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(record)) {
@@ -56,11 +62,17 @@ export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
     const rows: StoreRow[] = [];
     const errors: string[] = [];
 
+    // Strip BOM first so delimiter detection works on the actual content
+    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
+      ? buffer.subarray(3)
+      : buffer;
+
     const parser = parse({
       columns: true,
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
+      delimiter: detectDelimiter(input),
     });
 
     let rowIndex = 1;
@@ -123,10 +135,6 @@ export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
       resolve({ rows, errors });
     });
 
-    // Strip UTF-8 BOM if present (Excel adds it)
-    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
-      ? buffer.subarray(3)
-      : buffer;
     Readable.from(input).pipe(parser);
   });
 }
@@ -154,11 +162,16 @@ export async function parseCompetitorCSV(buffer: Buffer): Promise<CompetitorPars
     const rows: CompetitorRow[] = [];
     const errors: string[] = [];
 
+    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
+      ? buffer.subarray(3)
+      : buffer;
+
     const parser = parse({
       columns: true,
       skip_empty_lines: true,
       trim: true,
       relax_column_count: true,
+      delimiter: detectDelimiter(input),
     });
 
     let rowIndex = 1;
@@ -213,9 +226,6 @@ export async function parseCompetitorCSV(buffer: Buffer): Promise<CompetitorPars
       resolve({ rows, errors });
     });
 
-    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
-      ? buffer.subarray(3)
-      : buffer;
     Readable.from(input).pipe(parser);
   });
 }
