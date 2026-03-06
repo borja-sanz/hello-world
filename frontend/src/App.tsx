@@ -88,12 +88,11 @@ const App: React.FC = () => {
   function addCentroidsFromOpps(opps: any[]): OpportunityScore[] {
     return opps.map(o => ({
       ...o,
-      centroid: o.centroid_geojson
+      centroid: (o.centroid || o.centroid_geojson)
         ? (() => {
             try {
-              const gj = typeof o.centroid_geojson === 'string'
-                ? JSON.parse(o.centroid_geojson)
-                : o.centroid_geojson;
+              const raw = o.centroid || o.centroid_geojson;
+              const gj = typeof raw === 'string' ? JSON.parse(raw) : raw;
               return { lat: gj.coordinates[1], lng: gj.coordinates[0] };
             } catch { return undefined; }
           })()
