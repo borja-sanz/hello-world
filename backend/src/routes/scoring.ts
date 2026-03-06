@@ -379,27 +379,34 @@ router.get('/settlements', async (req: Request, res: Response, next: NextFunctio
            s.area_km2,
            m.name       AS municipio_name,
            m.department,
+           -- Build geography point from lat/lng (geometry column is not always populated)
+           ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography AS pt,
            -- Economic activity: POI density within 2 km
            (SELECT COUNT(*) FROM poi_cache p
             WHERE p.geometry IS NOT NULL
-              AND ST_DWithin(p.geometry::geography, s.geometry::geography, 2000)
+              AND ST_DWithin(p.geometry::geography,
+                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography, 2000)
            )::int AS poi_count,
            -- Competition pressure: competitors within 3 km
            (SELECT COUNT(*) FROM competitors c
             WHERE c.geometry IS NOT NULL
-              AND ST_DWithin(c.geometry::geography, s.geometry::geography, 3000)
+              AND ST_DWithin(c.geometry::geography,
+                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography, 3000)
            )::int AS competitor_count,
            -- Coverage gap: distance to nearest open own store (km), null if none
-           (SELECT ROUND(MIN(ST_Distance(st.geometry::geography, s.geometry::geography)) / 1000)
+           (SELECT ROUND(MIN(ST_Distance(st.geometry::geography,
+                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography)) / 1000)
             FROM stores st
             WHERE st.geometry IS NOT NULL AND st.status = 'open'
            ) AS nearest_store_km
          FROM ntl_settlements s
          JOIN municipios m ON s.municipio_id = m.id
-         WHERE s.geometry IS NOT NULL
+         WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL
            AND COALESCE(s.estimated_pop, 0) >= $2
        )
-       SELECT *,
+       SELECT id, name, municipio_id, lat, lng, radiance_ntl, estimated_pop,
+              area_km2, municipio_name, department,
+              poi_count, competitor_count, nearest_store_km,
          LEAST(100, GREATEST(0,
            -- Population factor: 1 000 pop = 40 pts (cap)
            LEAST(40, estimated_pop / 1000.0) +
