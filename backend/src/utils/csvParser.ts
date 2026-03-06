@@ -22,6 +22,31 @@ const REQUIRED_COLUMNS = ['store_name', 'format', 'lat', 'lng'];
 const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'];
 const VALID_STATUSES = ['open', 'planned', 'closed', 'under_construction'];
 
+// Maps common column name variants → canonical name
+const COLUMN_ALIASES: Record<string, string> = {
+  name: 'store_name',
+  nombre: 'store_name',
+  store: 'store_name',
+  tienda: 'store_name',
+  formato: 'format',
+  latitude: 'lat',
+  latitud: 'lat',
+  longitude: 'lng',
+  longitud: 'lng',
+  lon: 'lng',
+  long: 'lng',
+};
+
+function normalizeRecord(record: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const normalized = key.trim().toLowerCase().replace(/\s+/g, '_');
+    const canonical = COLUMN_ALIASES[normalized] ?? normalized;
+    out[canonical] = value;
+  }
+  return out;
+}
+
 export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
   return new Promise((resolve) => {
     const rows: StoreRow[] = [];
@@ -40,6 +65,7 @@ export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
     parser.on('readable', () => {
       let record: Record<string, string>;
       while ((record = parser.read()) !== null) {
+        record = normalizeRecord(record);
         // Validate headers on first record
         if (!headersValidated) {
           const keys = Object.keys(record);
