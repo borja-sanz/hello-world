@@ -110,19 +110,58 @@ export async function loadCalibrationConfig(): Promise<CalibrationConfig> {
 // ─── Factor calculators ───────────────────────────────────────────────────────
 
 /**
+ * Department-level annual population growth rates (INE Guatemala intercensal
+ * projections, 2018–2023 average). Used to add a forward-looking bonus to the
+ * population score: high-growth departments have better prospects even if their
+ * current population sits below a threshold.
+ *
+ * Source: INE "Proyecciones de Población" 2018-2030 by department.
+ * National average ≈ 1.85%/year.
+ */
+const DEPT_GROWTH_RATE: Record<string, number> = {
+  'Petén':            3.2,  // frontier expansion + internal migration
+  'Izabal':           2.5,  // port/agro-industrial growth
+  'Alta Verapaz':     2.5,  // high rural fertility, coffee/cardamom economy
+  'Escuintla':        2.2,  // sugar/palm agro-industrial expansion
+  'Baja Verapaz':     2.1,
+  'Quiché':           2.0,
+  'Santa Rosa':       1.9,
+  'Suchitepéquez':    1.9,
+  'Chiquimula':       1.9,
+  'El Progreso':      1.9,
+  'Retalhuleu':       1.8,
+  'San Marcos':       1.8,  // high emigration partially offsets natural growth
+  'Sacatepéquez':     1.8,  // tourism/commerce corridor growth
+  'Jalapa':           1.8,
+  'Jutiapa':          1.7,
+  'Zacapa':           1.7,
+  'Chimaltenango':    1.7,
+  'Sololá':           1.6,
+  'Totonicapán':      1.5,
+  'Huehuetenango':    1.5,  // very high emigration rate suppresses net growth
+  'Quetzaltenango':   1.5,  // second-largest city, slower expansion
+  'Guatemala':        1.2,  // urban saturation, densification rather than sprawl
+};
+
+/**
  * POPULATION SCORE (0–100)
- * Uses piecewise linear normalization calibrated to Guatemala's distribution.
- * Breakpoints anchor the thresholds from the business rules.
+ *
+ * Base: piecewise normalization calibrated to Guatemala's population distribution.
+ * Growth bonus: fast-growing departments add up to +10 pts — a municipio of
+ *   30,000 today in Petén is a better 5-year bet than the same in Guatemala City.
+ *   Bonus = (growth_rate - 1.85) × 4, capped at +10 / min -6.
+ *   National average (1.85%) → +0. Petén (3.2%) → +5.4. Guatemala (1.2%) → -2.6.
  */
 function scorePopulation(
   population: number,
   pop3km: number,
   pop10km: number,
-  config: CalibrationConfig
+  config: CalibrationConfig,
+  department: string | null
 ): number {
   // Use the largest population signal we have
   const effectivePop = Math.max(population, pop3km, pop10km);
-  return clamp(piecewise(effectivePop, [
+  const baseScore = piecewise(effectivePop, [
     [0,                                   0],
     [5_000,                              10],
     [15_000,                             25],
@@ -132,14 +171,19 @@ function scorePopulation(
     [100_000,                            80],
     [300_000,                            92],
     [1_100_000,                         100],
-  ]));
+  ]);
+
+  // Growth rate bonus: forward-looking adjustment
+  const growthRate = department ? (DEPT_GROWTH_RATE[department] ?? 1.85) : 1.85;
+  const growthBonus = clamp((growthRate - 1.85) * 4, -6, 10);
+
+  return clamp(baseScore + growthBonus);
 }
 
 /**
  * Department-level population density (persons/km²).
  * Source: INE Guatemala Censo 2018 population + SEGEPLAN department areas.
- * Used as a foot-traffic / mobility proxy: denser departments have more
- * commercial movement even in municipios without detailed OSM road data.
+ * Used as a density bonus in the accessibility score.
  */
 const DEPT_DENSITY: Record<string, number> = {
   'Guatemala':       1475,  // 3,322,000 pop / 2,253 km²
@@ -167,27 +211,37 @@ const DEPT_DENSITY: Record<string, number> = {
 };
 
 /**
- * MOBILITY SCORE (0–100)
+ * ACCESSIBILITY SCORE (0–100)
+ * Renamed from "Mobility" to reflect what it actually measures.
  *
- * Primary: Google Distance Matrix drive time to Guatemala City.
- *   Drive time is the best single proxy for market access: it captures road
- *   quality, altitude, and actual route conditions better than any POI count.
- *   Populated once via /api/pois/refresh/drive-times.
+ * This factor captures how easy it is for customers to reach a store and
+ * how much ambient foot traffic the location naturally receives.
  *
- *   <20 min: 88  (Guatemala City metro / immediate suburbs)
- *   20–45:   74  (peri-urban: Mixco, Villa Nueva, Amatitlán)
- *   45–90:   60  (semi-urban: Chimaltenango, Escuintla)
- *   90–150:  45  (regional: Quetzaltenango, Cobán)
- *   150–210: 30  (remote: Huehuetenango, Petén corridor)
- *   210–300: 18  (very remote)
- *   >300:    10  (Petén interior / border areas)
+ * Three additive components:
  *
- * Secondary (always): population density bonus (0–20 pts).
- *   Captures intra-zone differences where drive time is similar.
+ * 1. Transit corridor signal (0–50 pts):
+ *    Bus terminals and transit stations are the strongest indicator that a
+ *    location sits on a human movement corridor. Each terminal attracts
+ *    hundreds of people daily. Fuel stations cluster on main roads and serve
+ *    as a highway-presence proxy.
+ *      transit_station / bus_station within 15km: each +8 pts (cap 40)
+ *      fuel station within 15km:                  each +3 pts (cap 15)
+ *    Cap at 50 total.
  *
- * Fallback (if drive_time_capital_min IS NULL): road/transit POI count from
- *   poi_cache within 10 km, then density-only if no POI data.
- *   This keeps the engine functional before the Distance Matrix refresh runs.
+ * 2. Drive time supplement (0–20 pts):
+ *    If the Google Distance Matrix refresh has been run, drive time to
+ *    Guatemala City adds an accessibility supplement reflecting how well-
+ *    integrated a location is into the national supply chain and commercial
+ *    network. This is secondary to the corridor signal.
+ *      <30 min: +20 | 30–60: +15 | 60–120: +10 | 120–180: +5 | >180: +2
+ *
+ * 3. Population density bonus (0–20 pts):
+ *    Dense areas have more people within walking distance of any point.
+ *    Uses actual municipio density when area_km2 is seeded, otherwise
+ *    falls back to the department-level INE 2018 average.
+ *
+ * Urban floor: if no POI data and no drive time, urban municipios start at 35,
+ *   rural at 15, so the score isn't zero for areas we haven't enriched yet.
  */
 async function scoreMobility(
   lat: number,
@@ -198,77 +252,66 @@ async function scoreMobility(
   areaKm2: number | null,
   driveTimeMin: number | null
 ): Promise<number> {
+  const geo = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`;
 
-  let baseScore: number;
-
-  if (driveTimeMin !== null) {
-    // ── Primary: drive time to Guatemala City ────────────────────────────────
-    baseScore = clamp(piecewise(driveTimeMin, [
-      [0,   88],
-      [20,  88],
-      [45,  74],
-      [90,  60],
-      [150, 45],
-      [210, 30],
-      [300, 18],
-      [420, 10],
-    ]));
-  } else {
-    // ── Fallback: Google/OSM road & transit POI count ─────────────────────────
-    const poiResult = await pool.query(
-      `SELECT COUNT(*) AS cnt
-       FROM poi_cache
-       WHERE poi_type IN ('highway_primary','highway_secondary','highway_trunk',
-                          'bus_stop','bus_station','fuel')
-         AND ST_DWithin(
-           geometry::geography,
-           ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-           10000
-         )`,
+  // ── 1. Transit corridor signal ────────────────────────────────────────────
+  const [transitResult, fuelResult] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*) AS cnt FROM poi_cache
+       WHERE poi_type IN ('bus_station','transit_station')
+         AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
       [lat, lng]
-    );
-    const poiCount = parseInt(poiResult.rows[0]?.cnt ?? '0');
+    ),
+    pool.query(
+      `SELECT COUNT(*) AS cnt FROM poi_cache
+       WHERE poi_type = 'fuel'
+         AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
+      [lat, lng]
+    ),
+  ]);
 
-    if (poiCount > 0) {
-      baseScore = clamp(piecewise(poiCount, [
-        [0,   isUrban ? 40 : 20],
-        [5,   55],
-        [15,  70],
-        [30,  85],
-        [50,  95],
-        [100, 100],
-      ]));
-    } else {
-      // Last resort: store/competitor presence implies road access
-      const storeResult = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM (
-           SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
-           UNION ALL
-           SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)
-         ) combined`,
-        [lat, lng]
-      );
-      const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
-      baseScore = clamp((isUrban ? 55 : 30) + Math.min(storeCount * 3, 30));
-    }
+  const transitCount = parseInt(transitResult.rows[0]?.cnt ?? '0');
+  const fuelCount    = parseInt(fuelResult.rows[0]?.cnt ?? '0');
+
+  const corridorScore = clamp(transitCount * 8 + fuelCount * 3, 0, 50);
+
+  // ── 2. Drive time supplement (optional enhancement) ───────────────────────
+  let driveBonus = 0;
+  if (driveTimeMin !== null) {
+    driveBonus = piecewise(driveTimeMin, [
+      [0,   20], [30,  20],
+      [60,  15], [120, 10],
+      [180,  5], [300,  2],
+    ]);
   }
 
-  // ── Density bonus (0–20 pts) — differentiates within similar drive-time bands
+  // ── 3. Fallback floor when no corridor data or drive time ─────────────────
+  let baseScore: number;
+  if (corridorScore > 0 || driveTimeMin !== null) {
+    baseScore = corridorScore + driveBonus;
+  } else {
+    // Use store/competitor presence as a last-resort signal (implies road access)
+    const storeResult = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
+         UNION ALL
+         SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
+       ) combined`,
+      [lat, lng]
+    );
+    const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
+    baseScore = (isUrban ? 35 : 15) + Math.min(storeCount * 4, 25);
+  }
+
+  // ── 4. Density bonus (0–20 pts) ───────────────────────────────────────────
   const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
   const density = (areaKm2 != null && areaKm2 > 0 && municipioPop > 0)
     ? municipioPop / areaKm2
     : deptAvg;
 
   const densityBonus = clamp(piecewise(density, [
-    [0,    0],
-    [50,   2],
-    [150,  5],
-    [300,  9],
-    [500, 12],
-    [800, 15],
-    [1500, 17],
-    [3000, 19],
-    [5000, 20],
+    [0,    0], [50,   2], [150,  5], [300,  9],
+    [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
   ]));
 
   return clamp(baseScore + densityBonus);
@@ -409,6 +452,25 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
     score += 15; // no existing coverage = genuine opportunity
   }
 
+  // ── Retail void detection ─────────────────────────────────────────────────
+  // A location where the nearest formal grocery store of ANY kind (own or
+  // competitor) is >20 km away is a captive market: residents have no choice
+  // but to travel far for groceries, creating strong pent-up demand. This is
+  // one of the most reliable signals for a high-performing Despensa Familiar.
+  // Checked against ALL stores + ALL competitors within 20 km radius.
+  const voidResult = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM (
+       SELECT geometry FROM stores      WHERE geometry IS NOT NULL
+         AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
+       UNION ALL
+       SELECT geometry FROM competitors WHERE geometry IS NOT NULL
+         AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
+     ) combined`,
+    [lat, lng]
+  );
+  const anyStoreNearby = parseInt(voidResult.rows[0]?.cnt ?? '0') > 0;
+  if (!anyStoreNearby) score += 25; // true retail desert — captive market bonus
+
   // ── Format-weighted external competition ─────────────────────────────────
   const compResult = await pool.query(
     `SELECT chain FROM competitors
@@ -446,24 +508,28 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
  *     Source: INE Guatemala ENCOVI 2014 department poverty rates
  *   - Remittance bonus  = remittance_index × 15       [0–15]
  *     Source: Banco de Guatemala remittance distribution 2020
- *   - Amenity signal    = OSM schools/hospitals nearby [0–10]
+ *   - Amenity signal    = Google-sourced schools/hospitals nearby [0–10]
  *     (infrastructure density correlates with purchasing power)
+ *   - NTL radiance      = VIIRS nighttime light brightness [0–12]
+ *     Electrification rate is the strongest income proxy available at
+ *     sub-municipio level from free satellite data. Well-lit areas have
+ *     higher income, better spending power, and lower cash-only friction.
  *
- * Fallback (no real data): OSM social-infrastructure POI count, urban flag.
+ * Fallback (no real data): POI count + urban flag + NTL where available.
  */
 async function scoreSocioeconomic(
   lat: number,
   lng: number,
   isUrban: boolean,
   povertyIndex: number | null,
-  remittanceIndex: number | null
+  remittanceIndex: number | null,
+  municipioId: number | null
 ): Promise<number> {
   const geo = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`;
 
-  // Run both POI queries in parallel for efficiency
-  const [poiResult, ldsResult] = await Promise.all([
-    // OSM social infrastructure: schools, hospitals, churches within 5km.
-    // Used as quality-of-life amenity bonus (real data) or primary proxy (fallback).
+  // Run POI queries + NTL query in parallel
+  const [poiResult, ldsResult, ntlResult] = await Promise.all([
+    // Social infrastructure: schools, hospitals, churches within 5km.
     pool.query(
       `SELECT COUNT(*) AS cnt FROM poi_cache
        WHERE poi_type IN ('school','university','hospital','clinic',
@@ -471,22 +537,34 @@ async function scoreSocioeconomic(
          AND ST_DWithin(geometry::geography, ${geo}, 5000)`,
       [lat, lng]
     ),
-    // LDS church presence: The Church of Jesus Christ of Latter-day Saints builds
-    // permanent meetinghouses (~$500k+ investment) only after professional demographic
-    // analysis confirms sufficient D/C-segment household density and growth trajectory.
-    // A meetinghouse within 5km is third-party validation that this community has
-    // crossed the critical mass threshold for Despensa Familiar's core market.
-    // Signal is binary — presence matters, count within range doesn't compound.
+    // LDS church: built only after professional demographic validation confirms
+    // D/C-segment household density — third-party confirmation of critical mass.
     pool.query(
       `SELECT COUNT(*) AS cnt FROM poi_cache
        WHERE poi_type = 'lds_church'
          AND ST_DWithin(geometry::geography, ${geo}, 5000)`,
       [lat, lng]
     ),
+    // VIIRS nighttime lights: max radiance among settlements in this municipio.
+    // Electrification correlates strongly with household income in Guatemala.
+    // Higher radiance = more electricity use = higher disposable income.
+    municipioId
+      ? pool.query(
+          `SELECT MAX(radiance_ntl) AS max_rad FROM ntl_settlements
+           WHERE municipio_id = $1`,
+          [municipioId]
+        )
+      : Promise.resolve({ rows: [{ max_rad: null }] }),
   ]);
 
-  const poiCnt  = parseInt(poiResult.rows[0]?.cnt ?? '0');
+  const poiCnt   = parseInt(poiResult.rows[0]?.cnt ?? '0');
   const ldsBonus = parseInt(ldsResult.rows[0]?.cnt ?? '0') > 0 ? 4 : 0;
+
+  // NTL radiance bonus (0–12 pts)
+  const maxRad   = ntlResult.rows[0]?.max_rad != null ? parseFloat(ntlResult.rows[0].max_rad) : null;
+  const ntlBonus = maxRad !== null ? clamp(piecewise(maxRad, [
+    [0,   0], [5,  3], [20,  6], [50, 10], [100, 12],
+  ])) : 0;
 
   if (povertyIndex !== null) {
     // ── Real data path ────────────────────────────────────────────────────────
@@ -497,21 +575,21 @@ async function scoreSocioeconomic(
     // if a large share of households receive remittances (e.g. Huehuetenango)
     const remittanceBonus = (remittanceIndex ?? 0) * 15;
 
-    // Small amenity quality-of-life bonus from OSM infrastructure
+    // Amenity quality-of-life bonus (Google-sourced schools, hospitals, etc.)
     const amenityBonus = clamp(piecewise(poiCnt, [
       [0,  0], [3, 3], [8, 6], [20, 10],
     ]));
 
-    return clamp(purchasingPower + remittanceBonus + amenityBonus + ldsBonus);
+    return clamp(purchasingPower + remittanceBonus + amenityBonus + ldsBonus + ntlBonus);
   }
 
   // ── Fallback: POI-proxy path ─────────────────────────────────────────────
   if (poiCnt > 0) {
     return clamp(piecewise(poiCnt, [
       [0,  20], [3, 40], [8, 60], [15, 75], [30, 90], [60, 100],
-    ]) + ldsBonus);
+    ]) + ldsBonus + ntlBonus);
   }
-  return clamp((isUrban ? 55 : 35) + ldsBonus);
+  return clamp((isUrban ? 55 : 35) + ldsBonus + ntlBonus);
 }
 
 // ─── Format recommendation ────────────────────────────────────────────────────
@@ -613,10 +691,10 @@ export async function scorePoint(
       scoreMobility(lat, lng, isUrban, department, pop, areaKm2, driveTimeMin),
       scoreCommercial(lat, lng),
       scoreCompetition(lat, lng),
-      scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex),
+      scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex, municipio?.id ?? null),
     ]);
 
-  const popScore = scorePopulation(pop, pop3km, pop10km, cfg);
+  const popScore = scorePopulation(pop, pop3km, pop10km, cfg, department);
 
   const factors: FactorScores = {
     population:    popScore,

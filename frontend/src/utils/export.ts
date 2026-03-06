@@ -17,7 +17,7 @@ function download(content: string, filename: string, mimeType: string): void {
 export function exportOpportunitiesCsv(opportunities: OpportunityScore[]): void {
   const header = [
     'Rank', 'Municipio', 'Departamento', 'Población', 'Score', 'Recomendación',
-    'Formato Sugerido', 'Score Población', 'Score Movilidad', 'Score Comercio',
+    'Formato Sugerido', 'Score Población', 'Score Accesibilidad', 'Score Comercio',
     'Score Competencia', 'Score Socioeconómico', 'Tienda más cercana (km)', 'Razonamiento',
   ].join(',');
 

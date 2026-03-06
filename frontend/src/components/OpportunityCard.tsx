@@ -18,7 +18,7 @@ const BAR_COLORS: Record<string, string> = {
 
 const FACTOR_LABELS: Record<string, string> = {
   population:    'Población',
-  mobility:      'Movilidad',
+  mobility:      'Accesibilidad',
   commercial:    'Comercio',
   competition:   'Competencia',
   socioeconomic: 'Socioeconómico',

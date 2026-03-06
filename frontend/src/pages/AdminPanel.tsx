@@ -233,7 +233,7 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
   // Labels without hardcoded percentages — the slider shows the live value
   const WEIGHTS: { key: keyof CalibrationConfig; label: string; color: string }[] = [
     { key: 'weight_population',    label: 'Población',          color: '#3b82f6' },
-    { key: 'weight_mobility',      label: 'Movilidad',          color: '#8b5cf6' },
+    { key: 'weight_mobility',      label: 'Accesibilidad',      color: '#8b5cf6' },
     { key: 'weight_commercial',    label: 'Densidad Comercial', color: '#f97316' },
     { key: 'weight_competition',   label: 'Competencia',        color: '#14b8a6' },
     { key: 'weight_socioeconomic', label: 'Socioeconómico',     color: '#ec4899' },
@@ -303,7 +303,7 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
               ))}
 
               <p className="text-xs text-gray-400">
-                Valores por defecto (real-data-v2): Población 28%, Movilidad 22%, Comercial 22%, Competencia 15%, Socioeconómico 13%
+                Valores por defecto (real-data-v2): Población 28%, Accesibilidad 22%, Comercial 22%, Competencia 15%, Socioeconómico 13%
               </p>
             </div>
           )}
@@ -345,7 +345,7 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Override movilidad → Maxi Despensa ({(config.mobility_override_threshold * 100).toFixed(0)}%)
+                  Override accesibilidad → Maxi Despensa ({(config.mobility_override_threshold * 100).toFixed(0)}%)
                 </label>
                 <input
                   type="range" min={0.5} max={1.0} step={0.05}
@@ -354,7 +354,7 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
                   className="w-full h-2 accent-purple-600"
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  Si movilidad ≥ este umbral, se recomienda Maxi aunque la población sea menor
+                  Si accesibilidad ≥ este umbral, se recomienda Maxi aunque la población sea menor
                 </p>
               </div>
 
@@ -620,8 +620,8 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
                   Actualizar datos Google Maps
                 </p>
                 <p className="text-xs text-gray-400">
-                  Usa la API Key ingresada en la pestaña Competidores. Los tiempos de viaje son el
-                  principal indicador de movilidad (reemplaza OSM). Los mercados informales pesan
+                  Usa la API Key ingresada en la pestaña Competidores. Los tiempos de viaje son un
+                  indicador de accesibilidad logística. Los mercados informales pesan
                   3× en la puntuación comercial — actualizar mensualmente.
                 </p>
                 <div className="grid grid-cols-1 gap-2">
