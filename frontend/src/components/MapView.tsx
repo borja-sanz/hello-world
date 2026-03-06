@@ -41,11 +41,11 @@ function rankIcon(rank: number, color: string): L.DivIcon {
 
 function starIcon(color: string): L.DivIcon {
   return L.divIcon({
-    html: `<div style="width:16px;height:16px;background:${color};border:2px solid white;
+    html: `<div style="width:10px;height:10px;background:${color};border:1.5px solid white;
              box-shadow:0 1px 3px rgba(0,0,0,.5);transform:rotate(45deg)"></div>`,
     className: '',
-    iconSize:   [16, 16],
-    iconAnchor: [8, 8],
+    iconSize:   [10, 10],
+    iconAnchor: [5, 5],
   });
 }
 

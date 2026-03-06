@@ -236,6 +236,42 @@ router.post('/reclaim-own-stores', async (_req: Request, res: Response, next: Ne
   }
 });
 
+/**
+ * POST /api/admin/fix-store-formats
+ * Corrects the format field for own-brand stores based on their name alone.
+ * Safe to run any number of times.
+ */
+router.post('/fix-store-formats', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await pool.query(`
+      UPDATE stores SET
+        format = CASE
+          WHEN name ILIKE '%Despensa Familiar%' THEN 'Despensa Familiar'
+          WHEN name ILIKE '%Maxi Despensa%'     THEN 'Maxi Despensa'
+          WHEN name ILIKE '%Maxi Bodega%'       THEN 'Maxi Despensa'
+          ELSE format
+        END,
+        chain = CASE
+          WHEN name ILIKE '%Despensa Familiar%' THEN 'Despensa Familiar'
+          WHEN name ILIKE '%Maxi Despensa%'     THEN 'Maxi Despensa'
+          WHEN name ILIKE '%Maxi Bodega%'       THEN 'Maxi Despensa'
+          ELSE chain
+        END
+      WHERE name ILIKE '%Despensa Familiar%'
+         OR name ILIKE '%Maxi Despensa%'
+         OR name ILIKE '%Maxi Bodega%'
+      RETURNING id, name, format
+    `);
+    res.json({
+      fixed: result.rowCount ?? 0,
+      message: `${result.rowCount ?? 0} formato(s) de tiendas corregido(s).`,
+      stores: result.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** GET /api/admin/stats — system stats */
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {

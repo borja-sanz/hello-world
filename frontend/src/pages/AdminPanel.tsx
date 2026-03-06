@@ -5,7 +5,7 @@ import {
   fetchAdminStats, fetchPoiStatus,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, importStoresCsv,
-  syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores,
+  syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -179,6 +179,17 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportResult(null);
       await load();
     } catch { setMsg('❌ Error al eliminar tiendas'); }
+  };
+
+  const handleFixStoreFormats = async () => {
+    try {
+      const res = await fixStoreFormats();
+      setMsg(`✅ ${res.message}`);
+      await load();
+      onDataChanged?.();
+    } catch (e: any) {
+      setMsg(`❌ ${e.response?.data?.error ?? 'Error al corregir formatos'}`);
+    }
   };
 
   const handleReclaimOwnStores = async () => {
@@ -497,12 +508,21 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                   Mueve a "Mis Tiendas" cualquier competidor cuyo nombre incluya
                   <strong> Maxi Despensa</strong>, <strong>Maxi Bodega</strong> o <strong>Despensa Familiar</strong>.
                 </p>
-                <button
-                  onClick={handleReclaimOwnStores}
-                  className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
-                >
-                  Reclamar tiendas propias
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleReclaimOwnStores}
+                    className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
+                  >
+                    Reclamar tiendas propias
+                  </button>
+                  <button
+                    onClick={handleFixStoreFormats}
+                    className="flex-1 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
+                    title="Corrige el campo 'format' de tiendas cuyo nombre incluya Despensa Familiar / Maxi Despensa / Maxi Bodega"
+                  >
+                    Corregir formatos
+                  </button>
+                </div>
               </div>
 
               <div>

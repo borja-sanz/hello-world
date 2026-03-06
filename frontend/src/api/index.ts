@@ -52,6 +52,11 @@ export const reclaimOwnStores = async () => {
   return data as { moved: number; message: string };
 };
 
+export const fixStoreFormats = async () => {
+  const { data } = await api.post('/api/admin/fix-store-formats');
+  return data as { fixed: number; message: string; stores: { id: number; name: string; format: string }[] };
+};
+
 export const tagStorePerformance = async (
   id: number, performance: string
 ) => {
