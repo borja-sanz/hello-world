@@ -4,7 +4,7 @@ import {
   resetCalibrationConfig, recalculateAllScores,
   fetchAdminStats, fetchPoiStatus,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
-  fetchStoreSummary, clearAllStores, importStoresCsv, importCompetitorsCsv,
+  fetchStoreSummary, clearAllStores, clearAllCompetitors, importStoresCsv, importCompetitorsCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
   seedGuatemalaZones,
   refreshNtlSettlements,
@@ -195,6 +195,15 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportingComp(false);
       if (compFileInputRef.current) compFileInputRef.current.value = '';
     }
+  };
+
+  const handleClearCompetitors = async () => {
+    const count = stats?.competitor_count ?? '?';
+    if (!confirm(`¿Eliminar los ${count} competidores actuales? Esta acción no se puede deshacer.`)) return;
+    try {
+      const { deleted } = await clearAllCompetitors();
+      setMsg(`✅ ${deleted} competidores eliminados`);
+    } catch { setMsg('❌ Error al eliminar competidores'); }
   };
 
   const handleClearStores = async () => {
@@ -609,6 +618,20 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Clear competitors — danger zone */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <p className="text-xs text-gray-500 mb-2">
+                  Elimina todos los competidores existentes antes de importar tu CSV.
+                  Esta acción no puede deshacerse.
+                </p>
+                <button
+                  onClick={handleClearCompetitors}
+                  className="w-full py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+                >
+                  Eliminar todos los competidores ({stats?.competitor_count ?? 0})
+                </button>
               </div>
 
               {/* Reclaim own stores */}

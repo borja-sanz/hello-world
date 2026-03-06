@@ -54,6 +54,11 @@ export const clearAllStores = async () => {
   return data as { deleted: number };
 };
 
+export const clearAllCompetitors = async () => {
+  const { data } = await api.delete('/api/admin/competitors/all', { data: { confirm: 'BORRAR' } });
+  return data as { deleted: number };
+};
+
 export const reclaimOwnStores = async () => {
   const { data } = await api.post('/api/admin/reclaim-own-stores');
   return data as { moved: number; message: string };

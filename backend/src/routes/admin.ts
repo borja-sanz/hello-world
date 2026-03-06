@@ -137,6 +137,20 @@ router.delete('/stores/all', async (req: Request, res: Response, next: NextFunct
   }
 });
 
+/** DELETE /api/admin/competitors/all — remove all competitors to allow CSV re-import.
+ *  Body: { confirm: "BORRAR" } required to prevent accidental calls. */
+router.delete('/competitors/all', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.body?.confirm !== 'BORRAR') {
+      throw new AppError(400, 'Send { "confirm": "BORRAR" } to confirm');
+    }
+    const result = await pool.query('DELETE FROM competitors RETURNING id');
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * POST /api/admin/reclaim-own-stores
  * Moves misclassified own-brand competitors into the stores table.
