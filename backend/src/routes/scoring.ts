@@ -162,6 +162,82 @@ router.get('/municipio/:id', async (req: Request, res: Response, next: NextFunct
 });
 
 /**
+ * GET /api/scoring/sub-municipio/:id
+ *
+ * Scores each NTL settlement cluster within a municipio and returns them
+ * ranked by score. This gives an actionable "where inside this municipio"
+ * answer, not just a municipio-level signal.
+ *
+ * Each settlement is scored with the full scorePoint engine so competition,
+ * mobility and commercial factors reflect the settlement's specific location.
+ *
+ * Query params:
+ *   limit   – max settlements to return (default 10, max 20)
+ *   min_pop – minimum estimated_pop filter (default 0)
+ */
+router.get('/sub-municipio/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const municipioId = parseInt(req.params.id);
+    if (isNaN(municipioId)) throw new AppError(400, 'Invalid municipio id');
+
+    const limit  = Math.min(parseInt((req.query.limit  as string) || '10'), 20);
+    const minPop = parseInt((req.query.min_pop as string) || '0');
+
+    // Load all NTL settlements for this municipio
+    const settlements = await pool.query(
+      `SELECT id, name, lat, lng, radiance_ntl, estimated_pop, area_km2
+       FROM ntl_settlements
+       WHERE municipio_id = $1
+         AND COALESCE(estimated_pop, 0) >= $2
+       ORDER BY radiance_ntl DESC`,
+      [municipioId, minPop]
+    );
+
+    if (settlements.rows.length === 0) {
+      res.json({ municipio_id: municipioId, count: 0, settlements: [] });
+      return;
+    }
+
+    // Pre-load config once
+    const cfg = await loadCalibrationConfig();
+
+    // Score each settlement — run in parallel (capped at 10 concurrent)
+    const scored = await Promise.all(
+      settlements.rows.slice(0, 20).map(async (s) => {
+        try {
+          const result = await scorePoint(parseFloat(s.lat), parseFloat(s.lng), cfg);
+          return {
+            id:            s.id,
+            name:          s.name,
+            lat:           parseFloat(s.lat),
+            lng:           parseFloat(s.lng),
+            estimated_pop: s.estimated_pop,
+            radiance_ntl:  parseFloat(s.radiance_ntl),
+            area_km2:      s.area_km2 ? parseFloat(s.area_km2) : null,
+            score:         result.score,
+            recommendation: result.recommendation,
+            suggested_format: result.suggested_format,
+            factors:       result.factors,
+            reasoning:     result.reasoning,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const valid = scored
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    res.json({ municipio_id: municipioId, count: valid.length, settlements: valid });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/scoring/point
  * Body: { lat, lng }
  * Scores any arbitrary point on demand.

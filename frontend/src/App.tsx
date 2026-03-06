@@ -6,7 +6,7 @@ import {
   fetchStores, fetchCompetitors,
   fetchOpportunities, fetchBlueOceanOpportunities,
   analyzeTradeArea, calculateAllScores,
-  fetchNtlSettlements,
+  fetchNtlSettlements, fetchSubMunicipioScores,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
@@ -148,12 +148,34 @@ const App: React.FC = () => {
       const lng = opp.centroid.lng as unknown as number;
       setFlyToTarget({ lat, lng, zoom: 11 });
     }
-    // Load NTL settlements for this municipio
+    // Load NTL settlements AND sub-municipio scores in parallel
     setNtlData(null);
     setNtlLoading(true);
     try {
-      const result = await fetchNtlSettlements(opp.municipio_id);
-      setNtlData(result);
+      const [ntlResult, scoreResult] = await Promise.allSettled([
+        fetchNtlSettlements(opp.municipio_id),
+        fetchSubMunicipioScores(opp.municipio_id, { limit: 10 }),
+      ]);
+
+      if (ntlResult.status === 'fulfilled') {
+        const ntl = ntlResult.value;
+        // Merge sub-municipio scores into settlement rows by id
+        if (scoreResult.status === 'fulfilled') {
+          const scoreMap = new Map(
+            scoreResult.value.settlements.map((s: any) => [s.id, s])
+          );
+          ntl.settlements = ntl.settlements.map(s => {
+            const scored = scoreMap.get(s.id) as any;
+            return scored
+              ? { ...s, score: scored.score, recommendation: scored.recommendation,
+                  suggested_format: scored.suggested_format, factors: scored.factors }
+              : s;
+          });
+          // Re-sort by score descending when scores are available
+          ntl.settlements.sort((a, b) => (b.score ?? b.radiance_ntl) - (a.score ?? a.radiance_ntl));
+        }
+        setNtlData(ntl);
+      }
     } catch {
       // NTL data is optional — silently skip if unavailable
     } finally {

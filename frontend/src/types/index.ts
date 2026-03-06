@@ -108,6 +108,11 @@ export interface NtlSettlement {
   municipio_name?: string;
   department?: string;
   dist_from_center_km?: number;
+  // Enriched by sub-municipio scoring endpoint when available
+  score?: number;
+  recommendation?: 'GO' | 'CAUTION' | 'NO-GO';
+  suggested_format?: string | null;
+  factors?: { population: number; mobility: number; commercial: number; competition: number; socioeconomic: number };
 }
 
 export interface NtlSettlementsResponse {

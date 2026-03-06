@@ -29,6 +29,12 @@ function radianceColor(radiance: number): string {
   return '#92400e';                        // dark brown (dim)
 }
 
+const SCORE_COLOR: Record<string, string> = {
+  'GO':      '#16a34a',
+  'CAUTION': '#d97706',
+  'NO-GO':   '#dc2626',
+};
+
 /** Relative bar width: 0–100% based on max estimated_pop in the list */
 function barWidth(pop: number, maxPop: number): number {
   return maxPop > 0 ? Math.round((pop / maxPop) * 100) : 0;
@@ -129,21 +135,40 @@ const NtlPanel: React.FC<Props> = ({ data, loading, onClose, onSettlementClick }
                     <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                       {s.name}
                     </div>
-                    {/* Population bar */}
-                    <div className="mt-0.5 h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${barWidth(pop, maxPop)}%`, backgroundColor: color }}
-                      />
-                    </div>
+                    {s.suggested_format ? (
+                      <div className="text-[9px] text-gray-400 truncate">{s.suggested_format}</div>
+                    ) : (
+                      <div className="mt-0.5 h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${barWidth(pop, maxPop)}%`, backgroundColor: color }}
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="text-right flex-shrink-0 ml-1">
-                    <div className="text-[10px] font-semibold text-gray-700 dark:text-gray-300">
-                      {pop > 0 ? `~${pop.toLocaleString()}` : '—'}
-                    </div>
-                    <div className="text-[9px] text-gray-400">
-                      {s.radiance_ntl.toFixed(1)} nW
-                    </div>
+                    {s.score !== undefined ? (
+                      <>
+                        <div
+                          className="text-[10px] font-bold"
+                          style={{ color: SCORE_COLOR[s.recommendation ?? ''] ?? '#6b7280' }}
+                        >
+                          {s.score.toFixed(0)}/100
+                        </div>
+                        <div className="text-[9px]" style={{ color: SCORE_COLOR[s.recommendation ?? ''] ?? '#6b7280' }}>
+                          {s.recommendation}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[10px] font-semibold text-gray-700 dark:text-gray-300">
+                          {pop > 0 ? `~${pop.toLocaleString()}` : '—'}
+                        </div>
+                        <div className="text-[9px] text-gray-400">
+                          {s.radiance_ntl.toFixed(1)} nW
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </button>

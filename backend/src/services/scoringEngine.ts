@@ -302,19 +302,39 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
 }
 
 /**
+ * Maps a competitor chain name to a format-size weight.
+ * Large-format chains suppress demand more than small independents.
+ *   2.0 — hypermarket / large supermarket (Walmart, Paiz, La Torre, Super 24)
+ *   1.3 — medium supermarket (La Bodegona, Dispensa del Hogar, Suma, Super del Barrio)
+ *   0.7 — small / informal (tiendas, mini-supers, unknown chains)
+ */
+function competitorWeight(chain: string): number {
+  const n = chain.toLowerCase();
+  if (/walmart|paiz|la torre|super 24|econosuper|supermercados gi|hipermercado/.test(n)) return 2.0;
+  if (/bodegona|dispensa del hogar|del hogar|super del barrio|suma\b|selectos|maxi/.test(n)) return 1.3;
+  return 0.7;
+}
+
+/**
  * COMPETITION SCORE (0–100)
- * Nuanced: close to our stores = cannibalization risk = bad.
- * Moderate competitors = proven market = good.
- * Many competitors = saturated = bad.
+ *
+ * Cannibalization (own stores):
+ *   Smooth exponential decay — impact = 42 × e^(−dist/4).
+ *   At 0 km: −42 | 2 km: −25 | 5 km: −13 | 10 km: −6 | 20 km: −2
+ *   Far uncovered areas (>25 km, no own store) receive a +15 bonus.
+ *
+ * External competition (format-weighted):
+ *   Effective competitor count = Σ competitorWeight(chain).
+ *   Proven demand at moderate levels; saturation penalty above threshold.
  */
 async function scoreCompetition(lat: number, lng: number): Promise<number> {
   let score = 50;
 
-  // Distance to nearest Despensa Familiar / Maxi Despensa (our own stores)
+  // ── Own-store cannibalization ────────────────────────────────────────────
   const ourResult = await pool.query(
     `SELECT format,
-            ROUND(ST_Distance(geometry::geography,
-              ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
+            ST_Distance(geometry::geography,
+              ST_SetSRID(ST_MakePoint($2,$1),4326)::geography) / 1000 AS dist_km
      FROM stores
      WHERE geometry IS NOT NULL
        AND format IN ('Despensa Familiar','Maxi Despensa','Walmart','Paiz')
@@ -325,17 +345,16 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
 
   if (ourResult.rows.length > 0) {
     const dist = parseFloat(ourResult.rows[0].dist_km);
-    if (dist < 2)       score -= 40;  // direct cannibalization
-    else if (dist < 5)  score -= 20;  // some overlap
-    else if (dist < 10) score -= 5;   // minor overlap
-    else if (dist > 20) score += 10;  // underserved area
+    // Smooth exponential decay: full penalty up close, fades with distance
+    const penalty = Math.round(42 * Math.exp(-dist / 4));
+    score -= penalty;
   } else {
-    score += 15; // no existing coverage = opportunity
+    score += 15; // no existing coverage = genuine opportunity
   }
 
-  // Competitor count within 5km (proven demand signal)
+  // ── Format-weighted external competition ─────────────────────────────────
   const compResult = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM competitors
+    `SELECT chain FROM competitors
      WHERE geometry IS NOT NULL
        AND chain NOT IN ('Despensa Familiar','Maxi Despensa','Walmart','Paiz')
        AND ST_DWithin(
@@ -345,13 +364,19 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
        )`,
     [lat, lng]
   );
-  const compCount = parseInt(compResult.rows[0]?.cnt ?? '0');
 
-  if (compCount === 0)       score += 5;   // neutral – could be gap or no demand
-  else if (compCount <= 2)   score += 20;  // proven demand, manageable competition
-  else if (compCount <= 5)   score += 10;  // active market
-  else if (compCount <= 10)  score -= 5;   // competitive
-  else                       score -= 15;  // saturated
+  // Sum weighted effective competitor count
+  const effectiveCount = compResult.rows.reduce(
+    (sum: number, row: { chain: string }) => sum + competitorWeight(row.chain),
+    0
+  );
+
+  if (effectiveCount === 0)         score += 5;   // possible gap — neutral
+  else if (effectiveCount <= 1.5)   score += 20;  // 1–2 small: proven demand
+  else if (effectiveCount <= 3.5)   score += 12;  // moderate competition
+  else if (effectiveCount <= 6)     score += 5;   // competitive but viable
+  else if (effectiveCount <= 10)    score -= 8;   // crowded market
+  else                              score -= 18;  // saturated
 
   return clamp(score);
 }

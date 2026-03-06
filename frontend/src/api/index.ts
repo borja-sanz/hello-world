@@ -169,6 +169,13 @@ export const fetchNtlSettlementsTop = async (limit = 50): Promise<NtlSettlements
   return data;
 };
 
+export const fetchSubMunicipioScores = async (
+  municipioId: number, params?: { limit?: number; min_pop?: number }
+): Promise<{ municipio_id: number; count: number; settlements: import('../types').NtlSettlement[] }> => {
+  const { data } = await api.get(`/api/scoring/sub-municipio/${municipioId}`, { params });
+  return data;
+};
+
 // ─── OSM ─────────────────────────────────────────────────────────────────────
 
 export const fetchOsmStatus = async () => {
