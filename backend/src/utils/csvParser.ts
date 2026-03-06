@@ -119,6 +119,10 @@ export async function parseStoreCSV(buffer: Buffer): Promise<ParseResult> {
       resolve({ rows, errors });
     });
 
-    Readable.from(buffer).pipe(parser);
+    // Strip UTF-8 BOM if present (Excel adds it)
+    const input = buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
+      ? buffer.subarray(3)
+      : buffer;
+    Readable.from(input).pipe(parser);
   });
 }
