@@ -57,6 +57,11 @@ export const fixStoreFormats = async () => {
   return data as { fixed: number; message: string; stores: { id: number; name: string; format: string }[] };
 };
 
+export const seedGuatemalaZones = async () => {
+  const { data } = await api.post('/api/admin/seed-guatemala-zones');
+  return data as { inserted: number; message: string };
+};
+
 export const tagStorePerformance = async (
   id: number, performance: string
 ) => {

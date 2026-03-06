@@ -6,6 +6,7 @@ import {
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, importStoresCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
+  seedGuatemalaZones,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -179,6 +180,16 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportResult(null);
       await load();
     } catch { setMsg('❌ Error al eliminar tiendas'); }
+  };
+
+  const handleSeedGuatemalaZones = async () => {
+    try {
+      setMsg('⏳ Sembrando zonas de Ciudad de Guatemala…');
+      const res = await seedGuatemalaZones();
+      setMsg(`✅ ${res.message}`);
+    } catch (e: any) {
+      setMsg(`❌ ${e.response?.data?.error ?? 'Error al sembrar zonas'}`);
+    }
   };
 
   const handleFixStoreFormats = async () => {
@@ -686,6 +697,13 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     className="w-full py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium transition-colors text-left"
                   >
                     Mercados informales (~1 min, ~$0.37)
+                  </button>
+                  <button
+                    onClick={handleSeedGuatemalaZones}
+                    className="w-full py-2 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium transition-colors text-left"
+                    title="Inserta las 22 zonas administrativas de Ciudad de Guatemala en ntl_settlements para mejorar el detalle del desglose sub-municipio"
+                  >
+                    Zonas Ciudad de Guatemala (sub-municipio)
                   </button>
                   <button
                     onClick={handleRefreshPois}

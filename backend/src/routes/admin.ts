@@ -272,6 +272,90 @@ router.post('/fix-store-formats', async (_req: Request, res: Response, next: Nex
   }
 });
 
+/**
+ * POST /api/admin/seed-guatemala-zones
+ *
+ * Seeds Guatemala City's 22 administrative zones into ntl_settlements so the
+ * sub-municipio drill-down panel shows meaningful district-level granularity
+ * for the capital (which otherwise collapses to a single OSM place node).
+ *
+ * Population data: INE Censo 2018 + SEGEPLAN 2020 projections.
+ * Coordinates: zone centroid approximations (±1 km accuracy).
+ * radiance_ntl is back-calculated as estimated_pop / 756
+ *   where 756 = calib_k (180 hh/nW) × household_size (4.2 persons/hh).
+ *
+ * Safe to run multiple times — deletes existing zone records first.
+ */
+router.post('/seed-guatemala-zones', async (_req: Request, res: Response, next: NextFunction) => {
+  // Zones: [name, lat, lng, estimated_pop, area_km2]
+  const ZONES: [string, number, number, number, number][] = [
+    ['Zona 1 – Centro Histórico',     14.6409, -90.5133,  25000,   4.0],
+    ['Zona 2 – La Parroquia',         14.6508, -90.5044,  30000,   6.5],
+    ['Zona 3 – La Verbena',           14.6333, -90.5222,  50000,  14.0],
+    ['Zona 4 – Cantón Exposición',    14.6361, -90.5128,   8000,   2.5],
+    ['Zona 5 – Cantón Gerona',        14.6275, -90.5100,  28000,   6.0],
+    ['Zona 6 – Cantón La Ruedita',    14.6578, -90.5119,  55000,  12.0],
+    ['Zona 7 – Ciudad de Plata',      14.6389, -90.5436, 120000,  35.0],
+    ['Zona 8 – Cantón Guadalupe',     14.6186, -90.5211,  20000,   5.5],
+    ['Zona 9 – Cantón Bella Vista',   14.6078, -90.5256,  18000,   5.0],
+    ['Zona 10 – Calzada Aguilar B.',  14.5947, -90.5044,  25000,  10.0],
+    ['Zona 11 – Roosevelt',           14.6153, -90.5344,  50000,  13.0],
+    ['Zona 12 – San Jorge',           14.5972, -90.5447,  65000,  18.0],
+    ['Zona 13 – La Reformita',        14.5933, -90.5356,  30000,   8.5],
+    ['Zona 14 – Santa Rosalía',       14.5858, -90.4986,  28000,  12.0],
+    ['Zona 15 – Villa Hermosa',       14.5700, -90.4814,  35000,  14.0],
+    ['Zona 16 – El Maestro',          14.5631, -90.4883,  32000,  12.0],
+    ['Zona 17 – El Limón',            14.5608, -90.5264,  35000,  15.0],
+    ['Zona 18 – Peronia',             14.6383, -90.5567, 180000,  85.0],
+    ['Zona 19 – El Mezquital',        14.6394, -90.5717,  80000,  40.0],
+    ['Zona 21 – Villa Lobos',         14.5503, -90.5456,  90000,  38.0],
+    ['Zona 24 – El Naranjo',          14.6653, -90.5044,  35000,  20.0],
+    ['Zona 25 – Carolingia',          14.6744, -90.5422,  75000,  30.0],
+  ];
+
+  try {
+    // Find Guatemala City's municipio id (code '0101' or name 'Guatemala')
+    const mResult = await pool.query(
+      `SELECT id FROM municipios
+       WHERE code = '0101' OR (name ILIKE 'Guatemala' AND department ILIKE 'Guatemala')
+       ORDER BY code LIMIT 1`
+    );
+    if (mResult.rows.length === 0) {
+      res.status(404).json({ error: 'No se encontró el municipio de Guatemala en la DB.' });
+      return;
+    }
+    const municipioId: number = mResult.rows[0].id;
+
+    // Remove previously seeded zone records so we can re-seed cleanly
+    await pool.query(
+      `DELETE FROM ntl_settlements
+       WHERE municipio_id = $1 AND name ILIKE 'Zona %'`,
+      [municipioId]
+    );
+
+    // Insert zones
+    let inserted = 0;
+    for (const [name, lat, lng, pop, area] of ZONES) {
+      const radiance = parseFloat((pop / 756).toFixed(3));
+      await pool.query(
+        `INSERT INTO ntl_settlements
+           (name, municipio_id, lat, lng, radiance_ntl, estimated_pop, area_km2, ntl_source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'admin_zones')`,
+        [name, municipioId, lat, lng, radiance, pop, area]
+      );
+      inserted++;
+    }
+
+    res.json({
+      inserted,
+      municipio_id: municipioId,
+      message: `${inserted} zonas de Ciudad de Guatemala insertadas en ntl_settlements.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** GET /api/admin/stats — system stats */
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {
