@@ -119,12 +119,18 @@ const App: React.FC = () => {
     setCalculating(true);
     try {
       await calculateAllScores();
-      // Wait a beat then reload opportunities
-      setTimeout(async () => {
+      // Poll every 5s until scored results appear (scoring takes 30–90s server-side)
+      const poll = async (attempts: number) => {
         const fresh = await fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false }));
-        setOpportunities(addCentroidsFromOpps(fresh.opportunities));
-        setCalculating(false);
-      }, 3000);
+        const opps = (fresh as any).opportunities ?? [];
+        if (opps.length > 0 || attempts <= 0) {
+          setOpportunities(addCentroidsFromOpps(opps));
+          setCalculating(false);
+        } else {
+          setTimeout(() => poll(attempts - 1), 5000);
+        }
+      };
+      setTimeout(() => poll(18), 5000); // up to 18 × 5s = 90s
     } catch {
       setCalculating(false);
     }
