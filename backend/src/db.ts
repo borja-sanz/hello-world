@@ -1,7 +1,13 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// By default node-postgres returns NUMERIC/DECIMAL columns as strings to avoid
+// precision loss. For this app all score values fit safely in JS floats, so we
+// parse them as numbers — otherwise .toFixed() crashes in the frontend.
+// OID 1700 = NUMERIC / DECIMAL
+types.setTypeParser(1700, (val: string) => parseFloat(val));
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
