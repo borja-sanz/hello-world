@@ -29,12 +29,12 @@ router.get('/municipios', async (req: Request, res: Response, next: NextFunction
          los.competition_score, los.socioeconomic_score,
          los.recommendation, los.suggested_format, los.reasoning,
          los.calculated_at,
-         ST_AsGeoJSON(los.centroid_geojson)::text AS centroid,
+         los.centroid_geojson::text AS centroid,
          (SELECT ROUND(ST_Distance(s.geometry::geography,
             m.centroid::geography)/1000)
           FROM stores s, municipios m
           WHERE m.id = los.municipio_id AND s.geometry IS NOT NULL
-          ORDER BY s.geometry <-> m.centroid LIMIT 1) AS nearest_store_km
+          ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography) LIMIT 1) AS nearest_store_km
        FROM latest_opportunity_scores los
        WHERE los.score >= $1 AND COALESCE(los.population, 0) >= $2
        ORDER BY los.score DESC
@@ -84,12 +84,12 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
            los.competition_score, los.socioeconomic_score,
            los.recommendation, los.suggested_format, los.reasoning,
            los.calculated_at,
-           ST_AsGeoJSON(los.centroid_geojson)::text AS centroid,
+           los.centroid_geojson::text AS centroid,
            (SELECT ROUND(ST_Distance(s.geometry::geography, m.centroid::geography) / 1000)
             FROM stores s
             JOIN municipios m ON m.id = los.municipio_id
             WHERE s.geometry IS NOT NULL
-            ORDER BY s.geometry <-> m.centroid
+            ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography)
             LIMIT 1) AS nearest_store_km
          FROM latest_opportunity_scores los
          WHERE COALESCE(los.population, 0) >= $1

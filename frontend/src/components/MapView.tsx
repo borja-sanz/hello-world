@@ -22,6 +22,23 @@ function circleIcon(color: string, size = 12): L.DivIcon {
   });
 }
 
+function rankIcon(rank: number, color: string): L.DivIcon {
+  const size     = rank <= 3 ? 28 : rank <= 10 ? 22 : 18;
+  const fontSize = rank <= 3 ? 11 : 9;
+  const ring     = rank <= 3 ? `,0 0 0 3px ${color}50` : '';
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+             background:${color};border:2px solid white;
+             box-shadow:0 1px 4px rgba(0,0,0,.6)${ring};
+             display:flex;align-items:center;justify-content:center;
+             font-size:${fontSize}px;font-weight:700;color:white;
+             font-family:sans-serif;line-height:1;">${rank}</div>`,
+    className: '',
+    iconSize:   [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
 function starIcon(color: string): L.DivIcon {
   return L.divIcon({
     html: `<div style="width:16px;height:16px;background:${color};border:2px solid white;
@@ -172,15 +189,17 @@ const MapView: React.FC<MapViewProps> = ({
 
     const useHeatmap = layers.heatmap;
 
-    for (const opp of opportunities) {
-      if (!opp.centroid) continue;
+    opportunities.forEach((opp, i) => {
+      if (!opp.centroid) return;
       const { lat, lng } = opp.centroid as any;
-      if (!lat || !lng) continue;
+      if (!lat || !lng) return;
 
+      const rank  = i + 1;
       const color = SCORE_COLORS[opp.recommendation] ?? '#6b7280';
       const popupHtml = `
         <div class="text-sm" style="min-width:160px">
-          <strong>${opp.municipio_name}</strong>
+          <span style="font-size:11px;color:#6b7280">#${rank}</span>
+          <strong style="margin-left:4px">${opp.municipio_name}</strong>
           <div style="color:#6b7280;font-size:11px">${opp.department}</div>
           <div style="margin-top:4px">
             Score: <strong style="color:${color}">${opp.score.toFixed(0)}/100</strong>
@@ -195,9 +214,7 @@ const MapView: React.FC<MapViewProps> = ({
       `;
 
       if (useHeatmap) {
-        // Large filled circle scaled to approximate municipio area (~8km radius baseline)
-        // Guatemala avg municipio ≈ 324 km², radius ≈ sqrt(324/π) ≈ 10km
-        const radiusM = 9000; // 9km — roughly covers an average municipio
+        const radiusM = 9000;
         const circle = L.circle([lat, lng], {
           radius:      radiusM,
           fillColor:   color,
@@ -208,21 +225,20 @@ const MapView: React.FC<MapViewProps> = ({
         });
         circle.bindPopup(popupHtml);
         group.addLayer(circle);
+        // Rank label on top of heatmap zone
+        const label = L.marker([lat, lng], { icon: rankIcon(rank, color), zIndexOffset: rank <= 10 ? 100 : 0 });
+        label.bindPopup(popupHtml);
+        group.addLayer(label);
       } else {
-        // Dot mode: score-sized circle marker
-        const size = Math.max(6, Math.min(20, Math.round(opp.score / 6)));
-        const marker = L.circleMarker([lat, lng], {
-          radius:      size,
-          fillColor:   color,
-          color:       'white',
-          weight:      1.5,
-          opacity:     0.9,
-          fillOpacity: 0.85,
+        // Ranked badge marker
+        const marker = L.marker([lat, lng], {
+          icon: rankIcon(rank, color),
+          zIndexOffset: rank <= 10 ? 100 : 0,
         });
         marker.bindPopup(popupHtml);
         group.addLayer(marker);
       }
-    }
+    });
   }, [opportunities, layers.opportunities, layers.heatmap]);
 
   // ── Render NTL glow circles ───────────────────────────────────────────────
