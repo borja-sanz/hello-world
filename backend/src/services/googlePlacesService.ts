@@ -57,9 +57,10 @@ const COMPETITOR_CHAINS: { queries: string[]; chain: string }[] = [
   {
     chain: 'Suma Express',
     queries: [
-      'Suma Express supermercado Guatemala',
-      'Súma Express Guatemala',
       'Suma supermercado Guatemala',
+      'Suma Express supermercado Guatemala',
+      'Súper Suma Guatemala',
+      'Súma Express Guatemala',
     ],
   },
   {
