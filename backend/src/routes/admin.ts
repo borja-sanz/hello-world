@@ -170,13 +170,19 @@ router.post('/reclaim-own-stores', async (_req: Request, res: Response, next: Ne
           format = 'Despensa Familiar';
         }
 
-        await client.query(
-          `INSERT INTO stores (name, format, chain, lat, lng, address, municipio, department, status, source)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', 'reclaimed')
-           ON CONFLICT DO NOTHING`,
-          [row.name, format, format, row.lat, row.lng,
-           row.address ?? null, row.municipio ?? null, row.department ?? null]
+        // Skip if an identical store already exists (same name + coords)
+        const existing = await client.query(
+          `SELECT id FROM stores WHERE name = $1 AND ROUND(lat::numeric,4) = ROUND($2::numeric,4) AND ROUND(lng::numeric,4) = ROUND($3::numeric,4)`,
+          [row.name, row.lat, row.lng]
         );
+        if (existing.rows.length === 0) {
+          await client.query(
+            `INSERT INTO stores (name, format, chain, lat, lng, address, municipio, department, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open')`,
+            [row.name, format, format, row.lat, row.lng,
+             row.address ?? null, row.municipio ?? null, row.department ?? null]
+          );
+        }
 
         await client.query('DELETE FROM competitors WHERE id = $1', [row.id]);
         moved++;
