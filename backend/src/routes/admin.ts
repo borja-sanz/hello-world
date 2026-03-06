@@ -1,4 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import * as fs   from 'fs';
+import * as path from 'path';
+import { fromFile } from 'geotiff';
 import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
 import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../services/googlePlacesService';
@@ -207,6 +210,101 @@ router.post('/google-places/sync-chain', async (req: Request, res: Response, nex
 
     const result = await syncCompetitorChain(chainName, entry.queries, apiKey);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/admin/load-viirs — load real VIIRS GeoTIFF into ntl_settlements.
+ *  Header: Authorization: Bearer <ADMIN_SECRET>
+ *  Body (optional): { "tif_path": "/absolute/path/to/file.tif" }
+ */
+router.post('/load-viirs', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Auth check
+    const secret = process.env.ADMIN_SECRET;
+    const auth   = req.headers.authorization;
+    if (secret && auth !== `Bearer ${secret}`) {
+      throw new AppError(401, 'Unauthorized — provide Authorization: Bearer <ADMIN_SECRET>');
+    }
+
+    // Resolve tif path — try caller-supplied path first, then common locations
+    const candidates: string[] = [
+      req.body?.tif_path,
+      path.resolve(process.cwd(), 'data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(process.cwd(), '..', 'data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(__dirname, '../../../../data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(__dirname, '../../../data', 'viirs_ntl_guatemala_2023.tif'),
+    ].filter(Boolean) as string[];
+
+    const tifPath = candidates.find(p => fs.existsSync(p));
+    if (!tifPath) {
+      throw new AppError(404,
+        `GeoTIFF not found. Tried: ${candidates.join(', ')}. ` +
+        `Pass { "tif_path": "/absolute/path" } in the request body to override.`
+      );
+    }
+
+    const NTL_CALIB   = 180 * 4.2;
+    const NODATA_LOW  = -9999;
+    const NODATA_HIGH = 200000;
+
+    const tiff  = await fromFile(tifPath);
+    const image = await tiff.getImage();
+    const bbox  = image.getBoundingBox();
+    const [west, south, east, north] = bbox;
+    const width  = image.getWidth();
+    const height = image.getHeight();
+    const pixelW = (east  - west)  / width;
+    const pixelH = (north - south) / height;
+
+    const rasters = await image.readRasters();
+    const band    = rasters[0] as Float32Array | Int16Array | Uint16Array;
+
+    const { rows: settlements } = await pool.query<{ id: number; lat: string; lng: string }>(
+      'SELECT id, lat, lng FROM ntl_settlements ORDER BY id'
+    );
+
+    let updated = 0;
+    let skipped = 0;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const s of settlements) {
+        const lat = parseFloat(s.lat);
+        const lng = parseFloat(s.lng);
+        if (lng < west || lng > east || lat < south || lat > north) { skipped++; continue; }
+        const col = Math.floor((lng  - west)  / pixelW);
+        const row = Math.floor((north - lat)  / pixelH);
+        const c   = Math.max(0, Math.min(width  - 1, col));
+        const r   = Math.max(0, Math.min(height - 1, row));
+        const raw = band[r * width + c];
+        if (raw == null || raw <= NODATA_LOW || raw >= NODATA_HIGH) { skipped++; continue; }
+        const radiance     = Math.round(raw  * 1000) / 1000;
+        const estimatedPop = Math.round(radiance * NTL_CALIB);
+        await client.query(
+          `UPDATE ntl_settlements SET radiance_ntl=$1, estimated_pop=$2, ntl_source='viirs_2023' WHERE id=$3`,
+          [radiance, estimatedPop, s.id]
+        );
+        updated++;
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    res.json({
+      message : 'VIIRS data loaded successfully',
+      tif_path: tifPath,
+      extent  : { west, south, east, north },
+      size    : { width, height },
+      updated,
+      skipped,
+    });
   } catch (err) {
     next(err);
   }
