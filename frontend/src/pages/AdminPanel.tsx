@@ -9,7 +9,7 @@ import {
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; onDataChanged?: () => void; }
 
 interface StoreSummary {
   formats: { format: string; total: string; open: string; planned: string; closed: string }[];
@@ -51,7 +51,7 @@ const FORMAT_COLORS: Record<string, string> = {
   'Other':             '#6b7280',
 };
 
-const AdminPanel: React.FC<Props> = ({ onClose }) => {
+const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   const [config,        setConfig]        = useState<CalibrationConfig | null>(null);
   const [stats,         setStats]         = useState<any>(null);
   const [storeSummary,  setStoreSummary]  = useState<StoreSummary | null>(null);
@@ -187,6 +187,7 @@ const AdminPanel: React.FC<Props> = ({ onClose }) => {
       const res = await reclaimOwnStores();
       setMsg(`✅ ${res.message}`);
       await load();
+      onDataChanged?.();
     } catch (e: any) {
       setMsg(`❌ ${e.response?.data?.error ?? 'Error al reclamar tiendas'}`);
     }

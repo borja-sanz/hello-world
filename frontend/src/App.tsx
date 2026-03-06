@@ -285,7 +285,20 @@ const App: React.FC = () => {
       </main>
 
       {/* ── Admin panel modal ── */}
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showAdmin && (
+        <AdminPanel
+          onClose={() => setShowAdmin(false)}
+          onDataChanged={() => {
+            Promise.all([
+              fetchStores().catch(() => [] as typeof stores),
+              fetchCompetitors().catch(() => [] as typeof competitors),
+            ]).then(([s, c]) => {
+              setStores(s);
+              setCompetitors(c);
+            });
+          }}
+        />
+      )}
     </div>
   );
 };
