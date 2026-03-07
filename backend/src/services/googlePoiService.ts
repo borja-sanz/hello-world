@@ -89,7 +89,7 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function nearbySinglePage(
   lat: number, lng: number, radius: number,
-  googleType: string, apiKey: string, pageToken?: string
+  googleType: string, apiKey: string, pageToken?: string, keyword?: string
 ): Promise<{ results: any[]; next_page_token?: string }> {
   const params: Record<string, string> = {
     location: `${lat},${lng}`,
@@ -98,6 +98,7 @@ async function nearbySinglePage(
     key:      apiKey,
     language: 'es',
   };
+  if (keyword)   params.keyword   = keyword;
   if (pageToken) params.pagetoken = pageToken;
   const { data } = await axios.get(NEARBY_SEARCH_URL, { params, timeout: 15_000 });
   if (data.status === 'REQUEST_DENIED') throw new Error(`Places API denied: ${data.error_message}`);
@@ -107,13 +108,13 @@ async function nearbySinglePage(
 
 async function nearbyAllPages(
   lat: number, lng: number, radius: number,
-  googleType: string, apiKey: string, maxPages = 3
+  googleType: string, apiKey: string, maxPages = 3, keyword?: string
 ): Promise<any[]> {
   const all: any[] = [];
   let token: string | undefined;
   for (let p = 0; p < maxPages; p++) {
     if (p > 0 && token) await sleep(PAGE_DELAY_MS);
-    const { results, next_page_token } = await nearbySinglePage(lat, lng, radius, googleType, apiKey, token);
+    const { results, next_page_token } = await nearbySinglePage(lat, lng, radius, googleType, apiKey, token, keyword);
     all.push(...results);
     if (!next_page_token) break;
     token = next_page_token;
@@ -245,7 +246,10 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
   return results;
 }
 
-// ─── Refresh: mercados informales via Text Search ─────────────────────────────
+// ─── Refresh: mercados via Nearby Search with keyword ────────────────────────
+// Uses keyword="mercado" so any market is found by proximity regardless of its
+// proper name (e.g. "Mercado La Palmita"), not just those whose name contains
+// the department name.
 
 export async function refreshMercadosInformales(apiKey: string): Promise<{ dept: string; found: number; inserted: number; error?: string }[]> {
   const results: { dept: string; found: number; inserted: number; error?: string }[] = [];
@@ -260,7 +264,10 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
     for (const dept of depts) {
       const r = { dept, found: 0, inserted: 0, error: undefined as string | undefined };
       try {
-        const places = await textSearchAllPages(`mercado ${dept} Guatemala`, apiKey);
+        const places = await nearbyAllPages(
+          DEPT_CENTROIDS[dept].lat, DEPT_CENTROIDS[dept].lng,
+          60_000, 'establishment', apiKey, 3, 'mercado'
+        );
         r.found = places.length;
         await client.query('BEGIN');
         r.inserted = await upsertPois(places, 'marketplace', client);
