@@ -20,6 +20,7 @@ import {
   refreshNearbyPois,
   refreshMercadosInformales,
   refreshLdsChurches,
+  refreshAnchorRetailers,
   refreshDriveTimes,
   getPoiCounts,
   getRefreshLog,
@@ -118,6 +119,8 @@ router.post('/refresh/all', async (req: Request, res: Response, next: NextFuncti
       console.log('[google-pois] Mercados done');
       await refreshLdsChurches(apiKey);
       console.log('[google-pois] LDS done');
+      await refreshAnchorRetailers(apiKey);
+      console.log('[google-pois] Anchor retailers done');
       await refreshNearbyPois(apiKey);
       console.log('[google-pois] Nearby POIs done — full refresh complete');
       // Snapshot everything to disk so it survives a container restart

@@ -68,13 +68,27 @@ const DEPT_CENTROIDS: Record<string, { lat: number; lng: number }> = {
 };
 
 // ─── POI types to fetch via Nearby Search ────────────────────────────────────
-const NEARBY_TYPES: { google_type: string; poi_type: string }[] = [
-  { google_type: 'bank',            poi_type: 'bank'        },
-  { google_type: 'pharmacy',        poi_type: 'pharmacy'    },
-  { google_type: 'hospital',        poi_type: 'hospital'    },
-  { google_type: 'school',          poi_type: 'school'      },
-  { google_type: 'gas_station',     poi_type: 'fuel'        },
-  { google_type: 'transit_station', poi_type: 'bus_station' },
+const NEARBY_TYPES: { google_type: string; poi_type: string; keyword?: string }[] = [
+  { google_type: 'bank',             poi_type: 'bank'              },
+  { google_type: 'pharmacy',         poi_type: 'pharmacy'          },
+  { google_type: 'hospital',         poi_type: 'hospital'          },
+  { google_type: 'school',           poi_type: 'school'            },
+  { google_type: 'gas_station',      poi_type: 'fuel'              },
+  { google_type: 'transit_station',  poi_type: 'bus_station'       },
+  { google_type: 'church',            poi_type: 'church'        },
+  { google_type: 'city_hall',         poi_type: 'municipalidad' },
+  { google_type: 'convenience_store', poi_type: 'tienda'        },
+  { google_type: 'finance',           poi_type: 'cooperativa',  keyword: 'cooperativa' },
+];
+
+// ─── Guatemalan anchor retailers (POIs, not competitors) ─────────────────────
+// Presence signals consumer credit market + C/D-segment purchasing power.
+const ANCHOR_RETAILER_CHAINS = [
+  'Gallo más Gallo',
+  'Elektra',
+  'Tecnofacil',
+  'MAX',
+  'Distelsa',
 ];
 
 const NEARBY_SEARCH_URL   = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
@@ -198,18 +212,19 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
   const client = await pool.connect();
   try {
     // Clear old Google Places POIs before re-fetching (full refresh)
+    // Preserve marketplace, lds_church and anchor_retailer — each has its own dedicated refresh
     await client.query(
       `DELETE FROM poi_cache
        WHERE source = 'google_places'
-         AND poi_type NOT IN ('marketplace','lds_church')`
+         AND poi_type NOT IN ('marketplace','lds_church','anchor_retailer')`
     );
 
     for (const dept of depts) {
       const { lat, lng } = DEPT_CENTROIDS[dept];
-      for (const { google_type, poi_type } of NEARBY_TYPES) {
+      for (const { google_type, poi_type, keyword } of NEARBY_TYPES) {
         const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
         try {
-          const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey);
+          const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey, 3, keyword);
           r.found = places.length;
           await client.query('BEGIN');
           r.inserted = await upsertPois(places, poi_type, client);
@@ -280,6 +295,47 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
       tickProgress(`Mercados – ${dept}`, r.inserted);
       results.push(r);
       await sleep(300);
+    }
+    endProgress();
+  } finally {
+    client.release();
+  }
+
+  return results;
+}
+
+// ─── Refresh: Guatemalan anchor retailers via Nearby keyword search ───────────
+// Fetches Gallo más Gallo, Elektra, Tecnofacil, MAX, Distelsa as poi_type='anchor_retailer'.
+// Called only from the full refresh — no dedicated admin button.
+
+export async function refreshAnchorRetailers(apiKey: string): Promise<{ chain: string; dept: string; found: number; inserted: number; error?: string }[]> {
+  const results: { chain: string; dept: string; found: number; inserted: number; error?: string }[] = [];
+  const depts = Object.keys(DEPT_CENTROIDS);
+  startProgress('anchor_retailers', depts.length * ANCHOR_RETAILER_CHAINS.length);
+
+  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'anchor_retailer'`);
+
+  const client = await pool.connect();
+  try {
+    for (const chain of ANCHOR_RETAILER_CHAINS) {
+      for (const dept of depts) {
+        const r = { chain, dept, found: 0, inserted: 0, error: undefined as string | undefined };
+        try {
+          const { lat, lng } = DEPT_CENTROIDS[dept];
+          const places = await nearbyAllPages(lat, lng, 60_000, 'establishment', apiKey, 3, chain);
+          r.found = places.length;
+          await client.query('BEGIN');
+          r.inserted = await upsertPois(places, 'anchor_retailer', client);
+          await client.query('COMMIT');
+        } catch (err: any) {
+          await client.query('ROLLBACK').catch(() => {});
+          r.error = err.message;
+          if (/quota/i.test(err.message)) { endProgress(`Cuota agotada – ${chain} ${dept}`); results.push(r); break; }
+        }
+        tickProgress(`${chain} – ${dept}`, r.inserted);
+        results.push(r);
+        await sleep(300);
+      }
     }
     endProgress();
   } finally {

@@ -60,6 +60,11 @@ export interface PoiBreakdown {
   fuel: number;
   bus_station: number;
   hardware: number;
+  anchor_retailer: number;
+  church: number;
+  municipalidad: number;
+  tienda: number;
+  cooperativa: number;
 }
 
 export interface TradeAreaAnalysis extends OpportunityScore {
@@ -356,23 +361,28 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
   const poiResult = await pool.query(
     `SELECT COALESCE(SUM(
        CASE poi_type
-         WHEN 'marketplace'    THEN 3.0
-         WHEN 'bank'           THEN 2.0
-         WHEN 'pharmacy'       THEN 1.5
-         WHEN 'bus_station'    THEN 1.2
-         WHEN 'hospital'       THEN 1.0
-         WHEN 'school'         THEN 1.0
-         WHEN 'money_transfer' THEN 1.0
-         WHEN 'atm'            THEN 1.0
-         WHEN 'supermarket'    THEN 1.0
-         WHEN 'fuel'           THEN 0.8
+         WHEN 'marketplace'     THEN 3.0
+         WHEN 'anchor_retailer' THEN 2.5
+         WHEN 'bank'            THEN 2.0
+         WHEN 'pharmacy'        THEN 1.5
+         WHEN 'cooperativa'     THEN 1.5
+         WHEN 'bus_station'     THEN 1.2
+         WHEN 'hospital'        THEN 1.0
+         WHEN 'school'          THEN 1.0
+         WHEN 'money_transfer'  THEN 1.0
+         WHEN 'municipalidad'   THEN 1.0
+         WHEN 'atm'             THEN 1.0
+         WHEN 'supermarket'     THEN 1.0
+         WHEN 'fuel'            THEN 0.8
+         WHEN 'tienda'          THEN 0.4
          ELSE 1.0
        END
      ), 0) AS weighted_cnt
      FROM poi_cache
      WHERE poi_type IN ('bank','pharmacy','marketplace','market','hospital',
                         'school','fuel','supermarket','money_transfer','atm',
-                        'bus_station','hardware')
+                        'bus_station','hardware','anchor_retailer','cooperativa',
+                        'municipalidad','tienda')
        AND ST_DWithin(
          geometry::geography,
          ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
@@ -548,7 +558,7 @@ async function scoreSocioeconomic(
     pool.query(
       `SELECT COUNT(*) AS cnt FROM poi_cache
        WHERE poi_type IN ('school','university','hospital','clinic',
-                          'health_centre','place_of_worship','pharmacy')
+                          'health_centre','place_of_worship','pharmacy','church')
          AND ST_DWithin(geometry::geography, ${geo}, 5000)`,
       [lat, lng]
     ),
@@ -806,9 +816,14 @@ async function fetchPoiBreakdown(lat: number, lng: number): Promise<PoiBreakdown
        COALESCE(SUM(CASE WHEN poi_type = 'atm'            THEN 1 END), 0) AS atm,
        COALESCE(SUM(CASE WHEN poi_type = 'money_transfer' THEN 1 END), 0) AS money_transfer,
        COALESCE(SUM(CASE WHEN poi_type = 'supermarket'    THEN 1 END), 0) AS supermarket,
-       COALESCE(SUM(CASE WHEN poi_type = 'fuel'           THEN 1 END), 0) AS fuel,
-       COALESCE(SUM(CASE WHEN poi_type = 'bus_station'    THEN 1 END), 0) AS bus_station,
-       COALESCE(SUM(CASE WHEN poi_type = 'hardware'       THEN 1 END), 0) AS hardware
+       COALESCE(SUM(CASE WHEN poi_type = 'fuel'            THEN 1 END), 0) AS fuel,
+       COALESCE(SUM(CASE WHEN poi_type = 'bus_station'     THEN 1 END), 0) AS bus_station,
+       COALESCE(SUM(CASE WHEN poi_type = 'hardware'        THEN 1 END), 0) AS hardware,
+       COALESCE(SUM(CASE WHEN poi_type = 'anchor_retailer' THEN 1 END), 0) AS anchor_retailer,
+       COALESCE(SUM(CASE WHEN poi_type = 'church'          THEN 1 END), 0) AS church,
+       COALESCE(SUM(CASE WHEN poi_type = 'municipalidad'   THEN 1 END), 0) AS municipalidad,
+       COALESCE(SUM(CASE WHEN poi_type = 'tienda'          THEN 1 END), 0) AS tienda,
+       COALESCE(SUM(CASE WHEN poi_type = 'cooperativa'     THEN 1 END), 0) AS cooperativa
      FROM poi_cache
      WHERE ST_DWithin(geometry::geography, ${geo}, 5000)`,
     [lat, lng]
@@ -824,8 +839,13 @@ async function fetchPoiBreakdown(lat: number, lng: number): Promise<PoiBreakdown
     money_transfer: parseInt(r.money_transfer),
     supermarket:    parseInt(r.supermarket),
     fuel:           parseInt(r.fuel),
-    bus_station:    parseInt(r.bus_station),
-    hardware:       parseInt(r.hardware),
+    bus_station:     parseInt(r.bus_station),
+    hardware:        parseInt(r.hardware),
+    anchor_retailer: parseInt(r.anchor_retailer),
+    church:          parseInt(r.church),
+    municipalidad:   parseInt(r.municipalidad),
+    tienda:          parseInt(r.tienda),
+    cooperativa:     parseInt(r.cooperativa),
   };
 }
 
