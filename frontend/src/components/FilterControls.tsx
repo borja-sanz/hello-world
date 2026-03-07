@@ -4,22 +4,24 @@ import type { FilterState, LayerState } from '../types';
 const STORE_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'] as const;
 
 interface Props {
-  filters:         FilterState;
-  layers:          LayerState;
-  onFilterChange:  (f: FilterState) => void;
-  onLayerToggle:   (key: keyof LayerState) => void;
-  onCalculate:     () => void;
-  calculating:     boolean;
-  chains:          { chain: string; count: number }[];
-  hiddenChains:    string[];
-  onChainToggle:   (chain: string) => void;
-  hiddenFormats:   string[];
-  onFormatToggle:  (format: string) => void;
+  filters:            FilterState;
+  layers:             LayerState;
+  onFilterChange:     (f: FilterState) => void;
+  onLayerToggle:      (key: keyof LayerState) => void;
+  onCalculate:        () => void;
+  calculating:        boolean;
+  chains:             { chain: string; count: number }[];
+  hiddenChains:       string[];
+  onChainToggle:      (chain: string) => void;
+  hiddenFormats:      string[];
+  onFormatToggle:     (format: string) => void;
+  settlementCount?:   number;
 }
 
 const FilterControls: React.FC<Props> = ({
   filters, layers, onFilterChange, onLayerToggle, onCalculate, calculating,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
+  settlementCount = 0,
 }) => {
   return (
     <div className="p-3 border-b border-gray-200 dark:border-gray-700 space-y-3 flex-shrink-0">
@@ -34,7 +36,7 @@ const FilterControls: React.FC<Props> = ({
             ['stores',        'Nuestras tiendas'],
             ['competitors',   'Competidores'],
             ['opportunities', 'Oportunidades'],
-            ['settlements',   'Asentamientos'],
+            ['settlements',   `Asentamientos${settlementCount > 0 ? ` (${settlementCount})` : ''}`],
           ] as [keyof LayerState, string][]).map(([key, label]) => (
             <button
               key={key}

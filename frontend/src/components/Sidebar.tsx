@@ -31,6 +31,7 @@ interface Props {
   onChainToggle:      (chain: string) => void;
   hiddenFormats:      string[];
   onFormatToggle:     (format: string) => void;
+  settlementCount?:   number;
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -38,6 +39,7 @@ const Sidebar: React.FC<Props> = ({
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
   ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
+  settlementCount = 0,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -106,6 +108,7 @@ const Sidebar: React.FC<Props> = ({
             onChainToggle={onChainToggle}
             hiddenFormats={hiddenFormats}
             onFormatToggle={onFormatToggle}
+            settlementCount={settlementCount}
           />
 
           {/* Trade area panel */}

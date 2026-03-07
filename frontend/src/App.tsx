@@ -58,20 +58,24 @@ const App: React.FC = () => {
   // ── Initial data load ─────────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true);
+    // Core data: stores, competitors, opportunities, chains
     Promise.all([
       fetchStores().catch(() => []),
       fetchCompetitors().catch(() => []),
       fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false })),
       fetchCompetitorChains().catch(() => []),
-      fetchSettlementOpportunities({ limit: 200, min_pop: 500 }).catch(() => ({ count: 0, settlements: [] })),
-    ]).then(([s, c, o, ch, ss]) => {
+    ]).then(([s, c, o, ch]) => {
       setStores(s);
       setCompetitors(c);
       setOpportunities(addCentroidsFromOpps(o.opportunities));
       setChains(ch);
-      setSettlementScores(ss.settlements);
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
+
+    // Settlements loaded separately so they don't block app startup
+    fetchSettlementOpportunities({ limit: 500 })
+      .then(ss => setSettlementScores(ss.settlements))
+      .catch(() => {});
   }, []);
 
   // ── Blue ocean mode: re-fetch from dedicated endpoint when toggled ────────
@@ -318,6 +322,7 @@ const App: React.FC = () => {
           onChainToggle={handleChainToggle}
           hiddenFormats={hiddenFormats}
           onFormatToggle={handleFormatToggle}
+          settlementCount={settlementScores.length}
         />
       </main>
 

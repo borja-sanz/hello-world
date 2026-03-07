@@ -365,62 +365,38 @@ router.get('/poi-clusters/:id', async (req: Request, res: Response, next: NextFu
  */
 router.get('/settlements', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const limit  = Math.min(parseInt((req.query.limit as string) || '100'), 300);
-    const minPop = parseInt((req.query.min_pop as string) || '500');
+    const limit = Math.min(parseInt((req.query.limit as string) || '300'), 1000);
 
+    // Fast query: no correlated spatial subqueries.
+    // Score is based only on radiance (economic proxy) + estimated population.
+    // Population filter removed — let the frontend decide what to show.
     const result = await pool.query(
-      `WITH base AS (
-         SELECT
-           s.id, s.name, s.municipio_id,
-           s.lat::float   AS lat,
-           s.lng::float   AS lng,
-           s.radiance_ntl::float  AS radiance_ntl,
-           COALESCE(s.estimated_pop, 0)::int AS estimated_pop,
-           s.area_km2,
-           m.name       AS municipio_name,
-           m.department,
-           -- Build geography point from lat/lng (geometry column is not always populated)
-           ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography AS pt,
-           -- Economic activity: POI density within 2 km
-           (SELECT COUNT(*) FROM poi_cache p
-            WHERE p.geometry IS NOT NULL
-              AND ST_DWithin(p.geometry::geography,
-                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography, 2000)
-           )::int AS poi_count,
-           -- Competition pressure: competitors within 3 km
-           (SELECT COUNT(*) FROM competitors c
-            WHERE c.geometry IS NOT NULL
-              AND ST_DWithin(c.geometry::geography,
-                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography, 3000)
-           )::int AS competitor_count,
-           -- Coverage gap: distance to nearest open own store (km), null if none
-           (SELECT ROUND(MIN(ST_Distance(st.geometry::geography,
-                ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)::geography)) / 1000)
-            FROM stores st
-            WHERE st.geometry IS NOT NULL AND st.status = 'open'
-           ) AS nearest_store_km
-         FROM ntl_settlements s
-         JOIN municipios m ON s.municipio_id = m.id
-         WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL
-           AND COALESCE(s.estimated_pop, 0) >= $2
-       )
-       SELECT id, name, municipio_id, lat, lng, radiance_ntl, estimated_pop,
-              area_km2, municipio_name, department,
-              poi_count, competitor_count, nearest_store_km,
+      `SELECT
+         s.id,
+         s.name,
+         s.municipio_id,
+         s.lat::float               AS lat,
+         s.lng::float               AS lng,
+         s.radiance_ntl::float      AS radiance_ntl,
+         COALESCE(s.estimated_pop, 0)::int AS estimated_pop,
+         s.area_km2,
+         m.name                     AS municipio_name,
+         m.department,
+         0                          AS poi_count,
+         0                          AS competitor_count,
+         NULL::int                  AS nearest_store_km,
+         -- Score: 60% radiance (commercial proxy), 40% population
          LEAST(100, GREATEST(0,
-           -- Population factor: 1 000 pop = 40 pts (cap)
-           LEAST(40, estimated_pop / 1000.0) +
-           -- Commercial factor: 10 POIs = 30 pts (cap)
-           LEAST(30, poi_count * 3.0) +
-           -- Coverage gap: 10 km from nearest store = 20 pts (cap)
-           LEAST(20, COALESCE(nearest_store_km, 50) * 2.0) +
-           -- Competition inverse: 0 competitors = 10 pts, -2 per competitor
-           GREATEST(0, 10 - competitor_count * 2)
-         ))::int AS score
-       FROM base
-       ORDER BY score DESC
+           LEAST(60, s.radiance_ntl * 6.0) +
+           LEAST(40, COALESCE(s.estimated_pop, 0) / 1000.0)
+         ))::int                    AS score
+       FROM ntl_settlements s
+       JOIN municipios m ON s.municipio_id = m.id
+       WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL
+         AND COALESCE(s.radiance_ntl, 0) > 0
+       ORDER BY s.radiance_ntl DESC
        LIMIT $1`,
-      [limit, minPop]
+      [limit]
     );
 
     res.json({ count: result.rows.length, settlements: result.rows });
