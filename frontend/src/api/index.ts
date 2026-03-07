@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type {
-  Store, Competitor, Municipio, OpportunityScore, SettlementScore,
+  Store, Competitor, Municipio, OpportunityScore,
   TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse, PoiCluster,
   PoiNucleus, CompetitorGap,
 } from '../types';
@@ -113,13 +113,6 @@ export const fetchMunicipios = async (): Promise<Municipio[]> => {
 
 export const fetchMunicipiosGeoJSON = async () => {
   const { data } = await api.get('/api/municipios/geojson');
-  return data;
-};
-
-export const fetchSettlementOpportunities = async (params?: {
-  limit?: number; min_pop?: number;
-}): Promise<{ count: number; settlements: SettlementScore[] }> => {
-  const { data } = await api.get('/api/scoring/settlements', { params });
   return data;
 };
 

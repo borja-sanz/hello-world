@@ -15,7 +15,6 @@ interface Props {
   onChainToggle:      (chain: string) => void;
   hiddenFormats:      string[];
   onFormatToggle:     (format: string) => void;
-  settlementCount?:   number;
   nucleiCount?:       number;
   gapsCount?:         number;
   onBuildNuclei?:     () => void;
@@ -25,11 +24,11 @@ interface Props {
 const FilterControls: React.FC<Props> = ({
   filters, layers, onFilterChange, onLayerToggle, onCalculate, calculating,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  settlementCount = 0, nucleiCount = 0, gapsCount = 0,
+  nucleiCount = 0, gapsCount = 0,
   onBuildNuclei, buildingNuclei = false,
 }) => {
   return (
-    <div className="p-3 border-b border-gray-200 dark:border-gray-700 space-y-3 flex-shrink-0">
+    <div className="p-3 space-y-3">
 
       {/* Layer toggles */}
       <div>
@@ -41,7 +40,6 @@ const FilterControls: React.FC<Props> = ({
             ['stores',         'Nuestras tiendas'],
             ['competitors',    'Competidores'],
             ['opportunities',  'Oportunidades'],
-            ['settlements',    `Asentamientos${settlementCount > 0 ? ` (${settlementCount})` : ''}`],
             ['poiNuclei',      `Zonas${nucleiCount > 0 ? ` (${nucleiCount})` : ''}`],
             ['competitorGaps', `Brechas${gapsCount > 0 ? ` (${gapsCount})` : ''}`],
           ] as [keyof LayerState, string][]).map(([key, label]) => (

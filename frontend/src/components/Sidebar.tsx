@@ -31,7 +31,6 @@ interface Props {
   onChainToggle:      (chain: string) => void;
   hiddenFormats:      string[];
   onFormatToggle:     (format: string) => void;
-  settlementCount?:   number;
   nucleiCount?:       number;
   gapsCount?:         number;
   onBuildNuclei?:     () => void;
@@ -43,64 +42,68 @@ const Sidebar: React.FC<Props> = ({
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
   ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  settlementCount = 0, nucleiCount = 0, gapsCount = 0,
+  nucleiCount = 0, gapsCount = 0,
   onBuildNuclei, buildingNuclei = false,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   const filtered = opportunities.filter(o => {
-    if (filters.blueOcean) return true; // already filtered server-side
+    if (filters.blueOcean) return true;
     return (o.population ?? 0) >= filters.minPopulation && o.score >= filters.minScore;
   });
 
   return (
-    <aside
-      className={`flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700
-                  transition-all duration-300 ${collapsed ? 'w-10' : 'w-80'} flex-shrink-0`}
-    >
-      {/* Collapse toggle */}
+    // Wrapper: controls how much space the sidebar takes in the flex layout.
+    // When collapsed → w-0 so the map expands to full width.
+    // The toggle button is absolute-positioned relative to this wrapper so it
+    // remains visible at all times.
+    <div className={`relative flex-shrink-0 transition-all duration-300 ${collapsed ? 'w-0' : 'w-80'}`}>
+
+      {/* Toggle tab — always visible on the left edge */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-6 h-12
+        onClick={() => setCollapsed(c => !c)}
+        className="absolute -left-3 top-1/2 -translate-y-1/2 z-20 w-6 h-14
                    bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
                    rounded-l-md flex items-center justify-center text-gray-400
-                   hover:text-gray-600 shadow-sm"
-        title={collapsed ? 'Expandir' : 'Colapsar'}
+                   hover:text-gray-600 dark:hover:text-gray-300 shadow-sm transition-colors"
+        title={collapsed ? 'Mostrar panel' : 'Ocultar panel (mapa completo)'}
       >
         {collapsed ? '◀' : '▶'}
       </button>
 
-      {collapsed ? null : (
-        <>
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-            <div>
-              <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                Oportunidades
-              </div>
-              <div className="text-xs text-gray-400">
-                {filtered.length} municipios
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => exportOpportunitiesCsv(filtered)}
-                className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
-                title="Exportar CSV"
-              >
-                ⬇ CSV
-              </button>
-              <button
-                onClick={onOpenAdmin}
-                className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
-                title="Configuración"
-              >
-                ⚙
-              </button>
-            </div>
+      {/* Sidebar panel — overflow:hidden hides content when w-0 */}
+      <aside
+        className="absolute inset-0 flex flex-col bg-white dark:bg-gray-900
+                   border-l border-gray-200 dark:border-gray-700 overflow-hidden w-80"
+      >
+        {/* ── Sticky header ── */}
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200
+                        dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900 z-10">
+          <div>
+            <div className="text-sm font-bold text-gray-800 dark:text-gray-100">Oportunidades</div>
+            <div className="text-xs text-gray-400">{filtered.length} municipios</div>
           </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => exportOpportunitiesCsv(filtered)}
+              className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
+              title="Exportar CSV"
+            >
+              ⬇ CSV
+            </button>
+            <button
+              onClick={onOpenAdmin}
+              className="text-xs text-gray-400 hover:text-brand-600 transition-colors"
+              title="Configuración"
+            >
+              ⚙
+            </button>
+          </div>
+        </div>
 
-          {/* Filters */}
+        {/* ── Scrollable body: filters + optional panels + opportunity list ── */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+
           <FilterControls
             filters={filters}
             layers={layers}
@@ -113,30 +116,30 @@ const Sidebar: React.FC<Props> = ({
             onChainToggle={onChainToggle}
             hiddenFormats={hiddenFormats}
             onFormatToggle={onFormatToggle}
-            settlementCount={settlementCount}
             nucleiCount={nucleiCount}
             gapsCount={gapsCount}
             onBuildNuclei={onBuildNuclei}
             buildingNuclei={buildingNuclei}
           />
 
-          {/* Trade area panel */}
           {tradeArea && (
-            <TradeAreaPanel analysis={tradeArea} onClose={onTradeAreaClose} />
+            <div className="border-t border-gray-200 dark:border-gray-700">
+              <TradeAreaPanel analysis={tradeArea} onClose={onTradeAreaClose} />
+            </div>
           )}
 
-          {/* NTL sub-municipio drill-down */}
           {(ntlData || ntlLoading) && (
-            <NtlPanel
-              data={ntlData!}
-              loading={ntlLoading}
-              onClose={onNtlClose ?? (() => {})}
-              onSettlementClick={onSettlementClick ?? (() => {})}
-            />
+            <div className="border-t border-gray-200 dark:border-gray-700">
+              <NtlPanel
+                data={ntlData!}
+                loading={ntlLoading}
+                onClose={onNtlClose ?? (() => {})}
+                onSettlementClick={onSettlementClick ?? (() => {})}
+              />
+            </div>
           )}
 
-          {/* Rankings list */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
+          <div className="p-2 space-y-1.5 border-t border-gray-200 dark:border-gray-700">
             {loading && (
               <div className="text-center py-8 text-gray-400 text-sm">
                 <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -164,9 +167,9 @@ const Sidebar: React.FC<Props> = ({
               />
             ))}
           </div>
-        </>
-      )}
-    </aside>
+        </div>
+      </aside>
+    </div>
   );
 };
 

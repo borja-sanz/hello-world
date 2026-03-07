@@ -5,14 +5,13 @@ import AdminPanel from './pages/AdminPanel';
 import {
   fetchStores, fetchCompetitors, fetchCompetitorChains,
   fetchOpportunities, fetchBlueOceanOpportunities,
-  fetchSettlementOpportunities,
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
   fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
-  Store, Competitor, OpportunityScore, SettlementScore, TradeAreaAnalysis,
+  Store, Competitor, OpportunityScore, TradeAreaAnalysis,
   FilterState, LayerState, NtlSettlementsResponse, NtlSettlement, PoiCluster,
   PoiNucleus, CompetitorGap,
 } from './types';
@@ -31,7 +30,6 @@ const App: React.FC = () => {
   const [stores,            setStores]            = useState<Store[]>([]);
   const [competitors,       setCompetitors]       = useState<Competitor[]>([]);
   const [opportunities,     setOpportunities]     = useState<OpportunityScore[]>([]);
-  const [settlementScores,  setSettlementScores]  = useState<SettlementScore[]>([]);
   const [chains,            setChains]            = useState<{ chain: string; count: number }[]>([]);
   const [hiddenChains,      setHiddenChains]      = useState<string[]>([]);
   const [hiddenFormats,     setHiddenFormats]     = useState<string[]>([]);
@@ -54,7 +52,7 @@ const App: React.FC = () => {
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
 
   const [layers, setLayers] = useState<LayerState>({
-    stores: true, competitors: true, opportunities: true, settlements: false,
+    stores: true, competitors: true, opportunities: true,
     poiNuclei: false, competitorGaps: false,
   });
 
@@ -79,10 +77,6 @@ const App: React.FC = () => {
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
 
-    // Settlements loaded separately so they don't block app startup
-    fetchSettlementOpportunities({ limit: 500 })
-      .then(ss => setSettlementScores(ss.settlements))
-      .catch(() => {});
   }, []);
 
   // ── Blue ocean mode: re-fetch from dedicated endpoint when toggled ────────
@@ -332,7 +326,6 @@ const App: React.FC = () => {
             stores={visibleStores}
             competitors={visibleCompetitors}
             opportunities={opportunities}
-            settlementScores={settlementScores}
             layers={layers}
             tradeArea={tradeArea}
             onMapClick={handleMapClick}
@@ -371,7 +364,6 @@ const App: React.FC = () => {
           onChainToggle={handleChainToggle}
           hiddenFormats={hiddenFormats}
           onFormatToggle={handleFormatToggle}
-          settlementCount={settlementScores.length}
           nucleiCount={poiNuclei.length}
           gapsCount={competitorGaps.length}
           onBuildNuclei={handleBuildNuclei}
