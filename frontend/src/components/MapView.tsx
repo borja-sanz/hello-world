@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown, PoiNucleus, CompetitorGap } from '../types';
@@ -22,12 +22,12 @@ function circleIcon(color: string, size = 12): L.DivIcon {
   });
 }
 
-function rankIcon(rank: number, color: string): L.DivIcon {
+function rankIcon(rank: number, color: string, opacity = 1): L.DivIcon {
   const size     = rank <= 3 ? 28 : rank <= 10 ? 22 : 18;
   const fontSize = rank <= 3 ? 11 : 9;
   const ring     = rank <= 3 ? `,0 0 0 3px ${color}50` : '';
   return L.divIcon({
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+    html: `<div style="opacity:${opacity};width:${size}px;height:${size}px;border-radius:50%;
              background:${color};border:2px solid white;
              box-shadow:0 1px 4px rgba(0,0,0,.6)${ring};
              display:flex;align-items:center;justify-content:center;
@@ -110,6 +110,7 @@ interface MapViewProps {
   onPoiClusterClick?:  (c: PoiCluster) => void;
   poiNuclei?:          PoiNucleus[];
   competitorGaps?:     CompetitorGap[];
+  selectedOpp?:        OpportunityScore | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -119,8 +120,9 @@ const MapView: React.FC<MapViewProps> = ({
   tradeArea, onMapClick, loading, flyToTarget,
   ntlSettlements = [], onNtlClick,
   poiClusters = [], onOppBubbleClick, onPoiClusterClick,
-  poiNuclei = [], competitorGaps = [],
+  poiNuclei = [], competitorGaps = [], selectedOpp = null,
 }) => {
+  const [currentZoom, setCurrentZoom] = useState(8);
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
   const layersRef      = useRef<{
@@ -178,6 +180,15 @@ const MapView: React.FC<MapViewProps> = ({
     return () => { map.off('click', handler); };
   }, [onMapClick]);
 
+  // ── Track zoom for drill-down UX ──────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onZoom = () => setCurrentZoom(map.getZoom());
+    map.on('zoomend', onZoom);
+    return () => { map.off('zoomend', onZoom); };
+  }, []);
+
   // ── Render stores layer ───────────────────────────────────────────────────
   useEffect(() => {
     const group = layersRef.current?.stores;
@@ -230,6 +241,13 @@ const MapView: React.FC<MapViewProps> = ({
     group.clearLayers();
     if (!layers.opportunities) return;
 
+    // Fade big municipio bubbles when zoomed in and Zonas layer is active,
+    // so the poi_nuclei (smaller bubbles) read as the drill-down detail.
+    const hasNuclei = layers.poiNuclei && poiNuclei.length > 0;
+    const oppOpacity = hasNuclei
+      ? (currentZoom >= 12 ? 0.08 : currentZoom >= 10 ? 0.35 : 1)
+      : 1;
+
     opportunities.forEach((opp, i) => {
       if (!opp.centroid) return;
       const { lat, lng } = opp.centroid as any;
@@ -255,7 +273,7 @@ const MapView: React.FC<MapViewProps> = ({
       `;
 
       const marker = L.marker([lat, lng], {
-        icon: rankIcon(rank, color),
+        icon: rankIcon(rank, color, oppOpacity),
         zIndexOffset: rank <= 10 ? 100 : 0,
       });
       marker.bindPopup(popupHtml);
@@ -265,7 +283,7 @@ const MapView: React.FC<MapViewProps> = ({
       });
       group.addLayer(marker);
     });
-  }, [opportunities, layers.opportunities, onOppBubbleClick]);
+  }, [opportunities, layers.opportunities, layers.poiNuclei, poiNuclei.length, currentZoom, onOppBubbleClick]);
 
   // ── Render NTL glow circles ───────────────────────────────────────────────
   // Each settlement is rendered as two concentric circles: a larger transparent
@@ -443,7 +461,9 @@ const MapView: React.FC<MapViewProps> = ({
       if (!g.lat || !g.lng) continue;
       const score = g.gap_score;
       const size  = Math.max(14, Math.min(28, 14 + Math.round(score / 10)));
-      const color = score >= 70 ? '#7c3aed' : score >= 45 ? '#8b5cf6' : '#a78bfa';
+      // Priority tiers: Alta (≥70) = red, Media (40–69) = orange, Baja (<40) = violet
+      const color    = score >= 70 ? '#dc2626' : score >= 40 ? '#ea580c' : '#7c3aed';
+      const priority = score >= 70 ? '🔴 Alta' : score >= 40 ? '🟠 Media' : '🟣 Baja';
 
       const icon = L.divIcon({
         html: `<div style="width:${size}px;height:${size}px;border-radius:4px;
@@ -463,7 +483,7 @@ const MapView: React.FC<MapViewProps> = ({
 
       const popupHtml = `
         <div class="text-sm" style="min-width:190px">
-          <strong style="color:${color}">Brecha de mercado</strong>
+          <strong style="color:${color}">Brecha ${priority}</strong>
           <div style="margin-top:4px">
             Score: <strong style="color:${color}">${score}/100</strong>
           </div>
@@ -557,21 +577,38 @@ const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
+      {/* Zoom hint: nudge user to zoom in when Zonas layer is on */}
+      {layers.poiNuclei && poiNuclei.length > 0 && currentZoom < 10 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[500] pointer-events-none
+                        bg-orange-500/90 text-white text-[11px] font-medium
+                        px-3 py-1.5 rounded-full shadow-md whitespace-nowrap">
+          🔍 Haz zoom (nivel 10+) para ver las Zonas en detalle
+        </div>
+      )}
+
       {/* Map legend */}
-      <div className="absolute bottom-6 left-2 z-[500] bg-white dark:bg-gray-800 rounded-lg shadow-md p-2 text-xs space-y-1">
+      <div className="absolute bottom-6 left-2 z-[500] bg-white dark:bg-gray-800 rounded-lg shadow-md p-2 text-xs space-y-1 max-w-[180px]">
         <div className="font-semibold text-gray-600 dark:text-gray-300 mb-1">Leyenda</div>
+
+        {/* Store formats */}
         {Object.entries(STORE_COLORS).slice(0, 4).map(([fmt, color]) => (
           <div key={fmt} className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-            <span className="text-gray-600 dark:text-gray-400">{fmt}</span>
+            <span className="text-gray-600 dark:text-gray-400 truncate">{fmt}</span>
           </div>
         ))}
+
         <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-full flex-shrink-0 bg-red-500" />
           <span className="text-gray-600 dark:text-gray-400">Competidor</span>
         </div>
+
+        {/* Opportunity score legend + optional per-opp factor breakdown */}
         <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+        <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">
+          Score oportunidad
+        </div>
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-full flex-shrink-0 bg-green-500" />
           <span className="text-gray-600 dark:text-gray-400">GO (80–100)</span>
@@ -584,6 +621,38 @@ const MapView: React.FC<MapViewProps> = ({
           <div className="w-3 h-3 rounded-full flex-shrink-0 bg-red-600" />
           <span className="text-gray-600 dark:text-gray-400">NO-GO (&lt;40)</span>
         </div>
+
+        {/* Per-opportunity score breakdown (shown when one is selected) */}
+        {selectedOpp && (() => {
+          const factors = [
+            { label: 'Población',   weight: 28, val: selectedOpp.pop_score,           color: '#3b82f6' },
+            { label: 'Movilidad',   weight: 22, val: selectedOpp.mobility_score,       color: '#8b5cf6' },
+            { label: 'Comercio',    weight: 22, val: selectedOpp.commercial_score,     color: '#f97316' },
+            { label: 'Competencia', weight: 15, val: selectedOpp.competition_score,    color: '#14b8a6' },
+            { label: 'Socioecon.',  weight: 13, val: selectedOpp.socioeconomic_score,  color: '#ec4899' },
+          ];
+          return (
+            <>
+              <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+              <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">
+                Factores — {selectedOpp.municipio_name}
+              </div>
+              {factors.map(({ label, weight, val, color }) => (
+                <div key={label} className="space-y-0.5">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-gray-500 dark:text-gray-400">{label} <span className="opacity-60">({weight}%)</span></span>
+                    <span className="font-medium text-gray-700 dark:text-gray-200">{Math.round(val)}</span>
+                  </div>
+                  <div className="h-1 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                    <div style={{ width: `${Math.round(val)}%`, background: color }} className="h-full rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </>
+          );
+        })()}
+
+        {/* Nighttime lights */}
         {ntlSettlements.length > 0 && (
           <>
             <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
@@ -593,6 +662,8 @@ const MapView: React.FC<MapViewProps> = ({
             </div>
           </>
         )}
+
+        {/* POI clusters (municipio-level drill-down) */}
         {poiClusters.length > 0 && (
           <>
             <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
@@ -602,21 +673,47 @@ const MapView: React.FC<MapViewProps> = ({
             </div>
           </>
         )}
+
+        {/* POI nuclei (Zonas) */}
         {layers.poiNuclei && poiNuclei.length > 0 && (
           <>
             <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">
+              Zonas comerciales
+            </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#f97316' }} />
-              <span className="text-gray-600 dark:text-gray-400">Zona comercial</span>
+              <span className="text-gray-600 dark:text-gray-400">Alta act. (≥70)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#fb923c' }} />
+              <span className="text-gray-600 dark:text-gray-400">Media act. (45–69)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#fdba74' }} />
+              <span className="text-gray-600 dark:text-gray-400">Baja act. (&lt;45)</span>
             </div>
           </>
         )}
+
+        {/* Competitor gaps (Brechas) — priority tiers */}
         {layers.competitorGaps && competitorGaps.length > 0 && (
           <>
             <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">
+              Brechas de mercado
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#dc2626' }} />
+              <span className="text-gray-600 dark:text-gray-400">Alta prioridad (≥70)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#ea580c' }} />
+              <span className="text-gray-600 dark:text-gray-400">Media prioridad (40–69)</span>
+            </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#7c3aed' }} />
-              <span className="text-gray-600 dark:text-gray-400">Brecha de mercado</span>
+              <span className="text-gray-600 dark:text-gray-400">Baja prioridad (&lt;40)</span>
             </div>
           </>
         )}

@@ -41,6 +41,8 @@ const App: React.FC = () => {
   const [competitorGaps,    setCompetitorGaps]    = useState<CompetitorGap[]>([]);
   const [buildingNuclei,    setBuildingNuclei]    = useState(false);
   const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
+  const [selectedOpp,       setSelectedOpp]       = useState<OpportunityScore | null>(null);
+  const [gapFilter,         setGapFilter]         = useState({ high: true, medium: true, low: true });
   const gapsLoadedRef = React.useRef(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ const App: React.FC = () => {
   const handleMapClick = useCallback(async (lat: number, lng: number) => {
     setMapLoading(true);
     setTradeArea(null);
+    setSelectedOpp(null);
     try {
       const analysis = await analyzeTradeArea(lat, lng);
       setTradeArea(analysis);
@@ -236,8 +239,22 @@ const App: React.FC = () => {
     ? stores
     : stores.filter(s => !hiddenFormats.includes(s.format));
 
+  // Filter gaps by priority tier
+  const visibleGaps = competitorGaps.filter(g => {
+    if (g.gap_score >= 70) return gapFilter.high;
+    if (g.gap_score >= 40) return gapFilter.medium;
+    return gapFilter.low;
+  });
+
+  const gapTierCounts = {
+    high:   competitorGaps.filter(g => g.gap_score >= 70).length,
+    medium: competitorGaps.filter(g => g.gap_score >= 40 && g.gap_score < 70).length,
+    low:    competitorGaps.filter(g => g.gap_score < 40).length,
+  };
+
   // ── Opportunity card click → fly to municipio + load NTL settlements ──────
   const handleOppClick = useCallback(async (opp: OpportunityScore) => {
+    setSelectedOpp(opp);
     if (opp.centroid) {
       const lat = opp.centroid.lat as unknown as number;
       const lng = opp.centroid.lng as unknown as number;
@@ -355,7 +372,8 @@ const App: React.FC = () => {
             onOppBubbleClick={handleOppClick}
             onPoiClusterClick={(c) => handleMapClick(c.lat, c.lng)}
             poiNuclei={poiNuclei}
-            competitorGaps={competitorGaps}
+            competitorGaps={visibleGaps}
+            selectedOpp={selectedOpp}
           />
         </div>
 
@@ -383,10 +401,13 @@ const App: React.FC = () => {
           hiddenFormats={hiddenFormats}
           onFormatToggle={handleFormatToggle}
           nucleiCount={poiNuclei.length}
-          gapsCount={competitorGaps.length}
+          gapsCount={visibleGaps.length}
           nucleiNotBuilt={nucleiNotBuilt}
           onBuildNuclei={handleBuildNuclei}
           buildingNuclei={buildingNuclei}
+          gapFilter={gapFilter}
+          onGapFilterChange={setGapFilter}
+          gapTierCounts={gapTierCounts}
         />
       </main>
 

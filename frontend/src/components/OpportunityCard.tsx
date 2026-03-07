@@ -25,11 +25,11 @@ const FACTOR_LABELS: Record<string, string> = {
 };
 
 const FACTOR_WEIGHTS: Record<string, string> = {
-  population:    '30%',
-  mobility:      '25%',
-  commercial:    '25%',
+  population:    '28%',
+  mobility:      '22%',
+  commercial:    '22%',
   competition:   '15%',
-  socioeconomic: '5%',
+  socioeconomic: '13%',
 };
 
 const OpportunityCard: React.FC<Props> = ({ opp, rank, onClick }) => {

@@ -36,6 +36,9 @@ interface Props {
   nucleiNotBuilt?:    boolean;
   onBuildNuclei?:     () => void;
   buildingNuclei?:    boolean;
+  gapFilter?:         { high: boolean; medium: boolean; low: boolean };
+  onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
+  gapTierCounts?:     { high: number; medium: number; low: number };
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -45,6 +48,7 @@ const Sidebar: React.FC<Props> = ({
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
   nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
+  gapFilter, onGapFilterChange, gapTierCounts,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -122,6 +126,9 @@ const Sidebar: React.FC<Props> = ({
             nucleiNotBuilt={nucleiNotBuilt}
             onBuildNuclei={onBuildNuclei}
             buildingNuclei={buildingNuclei}
+            gapFilter={gapFilter}
+            onGapFilterChange={onGapFilterChange}
+            gapTierCounts={gapTierCounts}
           />
 
           {tradeArea && (

@@ -20,6 +20,9 @@ interface Props {
   nucleiNotBuilt?:    boolean;
   onBuildNuclei?:     () => void;
   buildingNuclei?:    boolean;
+  gapFilter?:         { high: boolean; medium: boolean; low: boolean };
+  onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
+  gapTierCounts?:     { high: number; medium: number; low: number };
 }
 
 const FilterControls: React.FC<Props> = ({
@@ -27,6 +30,7 @@ const FilterControls: React.FC<Props> = ({
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
   nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
+  gapFilter, onGapFilterChange, gapTierCounts,
 }) => {
   return (
     <div className="p-3 space-y-3">
@@ -57,6 +61,38 @@ const FilterControls: React.FC<Props> = ({
             </button>
           ))}
         </div>
+
+        {/* Brechas priority filter — only shown when the layer is active */}
+        {layers.competitorGaps && (
+          <div className="mt-2 pl-1 space-y-1">
+            <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+              Prioridad de brechas
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {([
+                { key: 'high'   as const, label: 'Alta',  count: gapTierCounts?.high   ?? 0, active: 'bg-red-500 border-red-500',     inactive: 'border-red-300 text-red-300' },
+                { key: 'medium' as const, label: 'Media', count: gapTierCounts?.medium ?? 0, active: 'bg-orange-500 border-orange-500', inactive: 'border-orange-300 text-orange-300' },
+                { key: 'low'    as const, label: 'Baja',  count: gapTierCounts?.low    ?? 0, active: 'bg-violet-600 border-violet-600', inactive: 'border-violet-300 text-violet-300' },
+              ]).map(({ key, label, count, active, inactive }) => (
+                <button
+                  key={key}
+                  onClick={() => onGapFilterChange?.({ ...(gapFilter ?? { high: true, medium: true, low: true }), [key]: !(gapFilter?.[key] ?? true) })}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors ${
+                    (gapFilter?.[key] ?? true)
+                      ? `${active} text-white`
+                      : `bg-transparent ${inactive} line-through`
+                  }`}
+                  title={key === 'high' ? 'Score ≥ 70' : key === 'medium' ? 'Score 40–69' : 'Score < 40'}
+                >
+                  {label}{count > 0 ? ` (${count})` : ''}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-gray-400 dark:text-gray-500">
+              Alta ≥70 · Media 40–69 · Baja &lt;40 · Score = densidad + cobertura + POIs
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Competitor chain checkboxes */}
