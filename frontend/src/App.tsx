@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [poiNuclei,         setPoiNuclei]         = useState<PoiNucleus[]>([]);
   const [competitorGaps,    setCompetitorGaps]    = useState<CompetitorGap[]>([]);
   const [buildingNuclei,    setBuildingNuclei]    = useState(false);
+  const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
   const gapsLoadedRef = React.useRef(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -168,8 +169,13 @@ const App: React.FC = () => {
     if (key === 'poiNuclei' && poiNuclei.length === 0) {
       try {
         const result = await fetchPoiNuclei({ limit: 200 });
-        setPoiNuclei(result.nuclei);
-      } catch { /* silent */ }
+        if (result.nuclei.length > 0) {
+          setPoiNuclei(result.nuclei);
+          setNucleiNotBuilt(false);
+        } else {
+          setNucleiNotBuilt(true);
+        }
+      } catch { setNucleiNotBuilt(true); }
     }
   }, [poiNuclei.length]);
 
@@ -189,21 +195,33 @@ const App: React.FC = () => {
   // ── Build POI nuclei (admin action) ──────────────────────────────────────
   const handleBuildNuclei = useCallback(async () => {
     setBuildingNuclei(true);
+    setNucleiNotBuilt(false);
     try {
       await buildPoiNuclei();
-      // Poll for results after 30s (build is async on server)
-      setTimeout(async () => {
+      // Poll every 10s for up to 90s until results appear
+      const poll = async (attempts: number) => {
         try {
           const result = await fetchPoiNuclei({ limit: 200 });
-          setPoiNuclei(result.nuclei);
-          // Also refresh gaps since new nuclei may change coverage analysis
-          gapsLoadedRef.current = false;
-          const gaps = await fetchCompetitorGaps({ limit: 200 });
-          setCompetitorGaps(gaps.gaps);
-          gapsLoadedRef.current = true;
-        } catch { /* silent */ }
-        setBuildingNuclei(false);
-      }, 35000);
+          if (result.nuclei.length > 0) {
+            setPoiNuclei(result.nuclei);
+            setNucleiNotBuilt(false);
+            // Also refresh gaps
+            gapsLoadedRef.current = false;
+            const gaps = await fetchCompetitorGaps({ limit: 200 });
+            setCompetitorGaps(gaps.gaps);
+            gapsLoadedRef.current = true;
+            setBuildingNuclei(false);
+            return;
+          }
+        } catch { /* keep polling */ }
+        if (attempts > 0) {
+          setTimeout(() => poll(attempts - 1), 10000);
+        } else {
+          setBuildingNuclei(false);
+          setNucleiNotBuilt(true);
+        }
+      };
+      setTimeout(() => poll(8), 10000); // up to 8 × 10s = 90s
     } catch {
       setBuildingNuclei(false);
     }
@@ -366,6 +384,7 @@ const App: React.FC = () => {
           onFormatToggle={handleFormatToggle}
           nucleiCount={poiNuclei.length}
           gapsCount={competitorGaps.length}
+          nucleiNotBuilt={nucleiNotBuilt}
           onBuildNuclei={handleBuildNuclei}
           buildingNuclei={buildingNuclei}
         />

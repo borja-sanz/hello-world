@@ -33,6 +33,7 @@ interface Props {
   onFormatToggle:     (format: string) => void;
   nucleiCount?:       number;
   gapsCount?:         number;
+  nucleiNotBuilt?:    boolean;
   onBuildNuclei?:     () => void;
   buildingNuclei?:    boolean;
 }
@@ -42,7 +43,7 @@ const Sidebar: React.FC<Props> = ({
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
   ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  nucleiCount = 0, gapsCount = 0,
+  nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -118,6 +119,7 @@ const Sidebar: React.FC<Props> = ({
             onFormatToggle={onFormatToggle}
             nucleiCount={nucleiCount}
             gapsCount={gapsCount}
+            nucleiNotBuilt={nucleiNotBuilt}
             onBuildNuclei={onBuildNuclei}
             buildingNuclei={buildingNuclei}
           />

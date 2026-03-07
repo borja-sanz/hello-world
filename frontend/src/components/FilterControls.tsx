@@ -17,6 +17,7 @@ interface Props {
   onFormatToggle:     (format: string) => void;
   nucleiCount?:       number;
   gapsCount?:         number;
+  nucleiNotBuilt?:    boolean;
   onBuildNuclei?:     () => void;
   buildingNuclei?:    boolean;
 }
@@ -24,7 +25,7 @@ interface Props {
 const FilterControls: React.FC<Props> = ({
   filters, layers, onFilterChange, onLayerToggle, onCalculate, calculating,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  nucleiCount = 0, gapsCount = 0,
+  nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
 }) => {
   return (
@@ -175,17 +176,30 @@ const FilterControls: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Build POI nuclei button */}
+      {/* Build POI nuclei — explanation + callout when data missing */}
       {onBuildNuclei && (
-        <button
-          onClick={onBuildNuclei}
-          disabled={buildingNuclei}
-          className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
-                     text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Clusteriza los POIs en zonas comerciales y calcula brechas de mercado"
-        >
-          {buildingNuclei ? '⏳ Construyendo zonas…' : '🏗 Construir zonas comerciales'}
-        </button>
+        <div className="space-y-1.5">
+          <button
+            onClick={onBuildNuclei}
+            disabled={buildingNuclei}
+            className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
+                       text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {buildingNuclei ? '⏳ Construyendo zonas… (hasta 60s)' : '🏗 Construir zonas + brechas'}
+          </button>
+          {nucleiNotBuilt && !buildingNuclei && (
+            <div className="text-[10px] bg-orange-50 dark:bg-orange-900/20 border border-orange-200
+                            dark:border-orange-800 rounded-md px-2 py-1.5 text-orange-700 dark:text-orange-300">
+              <strong>Zonas</strong> y <strong>Brechas</strong> requieren datos previos.<br />
+              Haz clic en el botón de arriba para construirlos (tarda ~30-60s).
+            </div>
+          )}
+          {!nucleiNotBuilt && nucleiCount === 0 && !buildingNuclei && (
+            <p className="text-[10px] text-gray-400 text-center">
+              Activa "Zonas" o "Brechas" para cargar · o construye primero
+            </p>
+          )}
+        </div>
       )}
 
       {/* Recalculate button */}
