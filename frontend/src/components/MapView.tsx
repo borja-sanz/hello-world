@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Store, Competitor, OpportunityScore, SettlementScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown } from '../types';
+import type { Store, Competitor, OpportunityScore, SettlementScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown, PoiNucleus, CompetitorGap } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -109,6 +109,8 @@ interface MapViewProps {
   poiClusters?:        PoiCluster[];
   onOppBubbleClick?:   (opp: OpportunityScore) => void;
   onPoiClusterClick?:  (c: PoiCluster) => void;
+  poiNuclei?:          PoiNucleus[];
+  competitorGaps?:     CompetitorGap[];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -118,17 +120,20 @@ const MapView: React.FC<MapViewProps> = ({
   tradeArea, onMapClick, loading, flyToTarget,
   ntlSettlements = [], onNtlClick,
   poiClusters = [], onOppBubbleClick, onPoiClusterClick,
+  poiNuclei = [], competitorGaps = [],
 }) => {
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
   const layersRef      = useRef<{
-    stores:        L.LayerGroup;
-    competitors:   L.LayerGroup;
-    opportunities: L.LayerGroup;
-    settlements:   L.LayerGroup;
-    tradeArea:     L.LayerGroup;
-    ntl:           L.LayerGroup;
-    poiClusters:   L.LayerGroup;
+    stores:          L.LayerGroup;
+    competitors:     L.LayerGroup;
+    opportunities:   L.LayerGroup;
+    settlements:     L.LayerGroup;
+    tradeArea:       L.LayerGroup;
+    ntl:             L.LayerGroup;
+    poiClusters:     L.LayerGroup;
+    poiNuclei:       L.LayerGroup;
+    competitorGaps:  L.LayerGroup;
   } | null>(null);
 
   // ── Initialize map once ───────────────────────────────────────────────────
@@ -147,13 +152,15 @@ const MapView: React.FC<MapViewProps> = ({
     }).addTo(map);
 
     const groups = {
-      stores:        L.layerGroup().addTo(map),
-      competitors:   L.layerGroup().addTo(map),
-      opportunities: L.layerGroup().addTo(map),
-      settlements:   L.layerGroup(),              // off by default
-      tradeArea:     L.layerGroup().addTo(map),
-      ntl:           L.layerGroup().addTo(map),
-      poiClusters:   L.layerGroup().addTo(map),
+      stores:         L.layerGroup().addTo(map),
+      competitors:    L.layerGroup().addTo(map),
+      opportunities:  L.layerGroup().addTo(map),
+      settlements:    L.layerGroup(),              // off by default
+      tradeArea:      L.layerGroup().addTo(map),
+      ntl:            L.layerGroup().addTo(map),
+      poiClusters:    L.layerGroup().addTo(map),
+      poiNuclei:      L.layerGroup(),              // off by default
+      competitorGaps: L.layerGroup(),              // off by default
     };
 
     layersRef.current = groups;
@@ -408,6 +415,110 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [poiClusters, onPoiClusterClick]);
 
+  // ── Render POI nuclei layer (zonas comerciales) ───────────────────────────
+  // Orange circles sized by POI weighted_score; color-coded by opportunity_score
+  useEffect(() => {
+    const group = layersRef.current?.poiNuclei;
+    if (!group) return;
+    group.clearLayers();
+    if (!layers.poiNuclei || poiNuclei.length === 0) return;
+
+    for (const n of poiNuclei) {
+      if (!n.lat || !n.lng) continue;
+      const score = n.opportunity_score;
+      const color = score >= 70 ? '#f97316' : score >= 45 ? '#fb923c' : '#fdba74';
+      const size  = Math.max(8, Math.min(22, Math.round(n.poi_count * 1.5)));
+
+      const icon = L.divIcon({
+        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+                 background:${color};border:2px solid white;
+                 box-shadow:0 1px 4px rgba(0,0,0,.6);
+                 display:flex;align-items:center;justify-content:center;
+                 font-size:9px;font-weight:700;color:white;
+                 font-family:sans-serif;line-height:1;">${n.poi_count}</div>`,
+        className: '',
+        iconSize:   [size, size],
+        iconAnchor: [size / 2, size / 2],
+      });
+
+      const storeTag = n.nearest_own_store_km !== null
+        ? `${n.nearest_own_store_km} km`
+        : 'Sin cobertura';
+
+      const popupHtml = `
+        <div class="text-sm" style="min-width:180px">
+          <strong style="color:#f97316">Zona Comercial</strong>
+          <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
+          <div style="margin-top:4px">
+            Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+          </div>
+          <div style="font-size:11px;margin-top:3px">
+            POIs: <strong>${n.poi_count}</strong> (peso: ${n.weighted_score.toFixed(1)})<br/>
+            Tienda propia: <strong>${storeTag}</strong><br/>
+            Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}<br/>
+            ${n.cnt_marketplace > 0 ? `🏪 Mercado: ${n.cnt_marketplace}<br/>` : ''}
+            ${n.cnt_bank > 0        ? `🏦 Banco: ${n.cnt_bank}<br/>` : ''}
+            ${n.cnt_pharmacy > 0    ? `💊 Farmacia: ${n.cnt_pharmacy}<br/>` : ''}
+            ${n.cnt_bus_station > 0 ? `🚌 Terminal: ${n.cnt_bus_station}<br/>` : ''}
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker([n.lat, n.lng], { icon });
+      marker.bindPopup(popupHtml);
+      group.addLayer(marker);
+    }
+  }, [poiNuclei, layers.poiNuclei]);
+
+  // ── Render competitor gaps layer (brechas) ────────────────────────────────
+  // Purple markers for competitor clusters without own-store coverage.
+  // Size reflects competitor density; darker = higher gap_score.
+  useEffect(() => {
+    const group = layersRef.current?.competitorGaps;
+    if (!group) return;
+    group.clearLayers();
+    if (!layers.competitorGaps || competitorGaps.length === 0) return;
+
+    for (const g of competitorGaps) {
+      if (!g.lat || !g.lng) continue;
+      const size  = Math.max(10, Math.min(24, 10 + g.competitor_count * 2));
+      const color = g.gap_score >= 70 ? '#7c3aed' : g.gap_score >= 45 ? '#8b5cf6' : '#a78bfa';
+
+      const icon = L.divIcon({
+        html: `<div style="width:${size}px;height:${size}px;border-radius:3px;
+                 background:${color};border:2px solid white;
+                 box-shadow:0 1px 4px rgba(0,0,0,.6);
+                 display:flex;align-items:center;justify-content:center;
+                 font-size:9px;font-weight:700;color:white;
+                 font-family:sans-serif;line-height:1;">${g.competitor_count}</div>`,
+        className: '',
+        iconSize:   [size, size],
+        iconAnchor: [size / 2, size / 2],
+      });
+
+      const storeTag = g.nearest_own_store_km !== null
+        ? `${g.nearest_own_store_km} km`
+        : 'Sin cobertura';
+      const chainsStr = g.chains.slice(0, 4).join(', ') + (g.chains.length > 4 ? '…' : '');
+
+      const popupHtml = `
+        <div class="text-sm" style="min-width:180px">
+          <strong style="color:${color}">Brecha de mercado</strong>
+          <div style="font-size:11px;margin-top:4px">
+            Competidores: <strong>${g.competitor_count}</strong><br/>
+            Cadenas: ${chainsStr}<br/>
+            Tienda propia más cercana: <strong>${storeTag}</strong><br/>
+            Gap score: <strong>${g.gap_score}/100</strong>
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker([g.lat, g.lng], { icon });
+      marker.bindPopup(popupHtml);
+      group.addLayer(marker);
+    }
+  }, [competitorGaps, layers.competitorGaps]);
+
   // ── flyToTarget: pan/zoom map when a sidebar card is clicked ─────────────
   useEffect(() => {
     if (!flyToTarget || !mapRef.current) return;
@@ -454,14 +565,18 @@ const MapView: React.FC<MapViewProps> = ({
     const lg  = layersRef.current;
     if (!map || !lg) return;
 
-    if (layers.stores)        { if (!map.hasLayer(lg.stores))        lg.stores.addTo(map); }
-    else                      { map.removeLayer(lg.stores); }
-    if (layers.competitors)   { if (!map.hasLayer(lg.competitors))   lg.competitors.addTo(map); }
-    else                      { map.removeLayer(lg.competitors); }
-    if (layers.opportunities) { if (!map.hasLayer(lg.opportunities)) lg.opportunities.addTo(map); }
-    else                      { map.removeLayer(lg.opportunities); }
-    if (layers.settlements)   { if (!map.hasLayer(lg.settlements))   lg.settlements.addTo(map); }
-    else                      { map.removeLayer(lg.settlements); }
+    if (layers.stores)          { if (!map.hasLayer(lg.stores))          lg.stores.addTo(map); }
+    else                        { map.removeLayer(lg.stores); }
+    if (layers.competitors)     { if (!map.hasLayer(lg.competitors))     lg.competitors.addTo(map); }
+    else                        { map.removeLayer(lg.competitors); }
+    if (layers.opportunities)   { if (!map.hasLayer(lg.opportunities))   lg.opportunities.addTo(map); }
+    else                        { map.removeLayer(lg.opportunities); }
+    if (layers.settlements)     { if (!map.hasLayer(lg.settlements))     lg.settlements.addTo(map); }
+    else                        { map.removeLayer(lg.settlements); }
+    if (layers.poiNuclei)       { if (!map.hasLayer(lg.poiNuclei))       lg.poiNuclei.addTo(map); }
+    else                        { map.removeLayer(lg.poiNuclei); }
+    if (layers.competitorGaps)  { if (!map.hasLayer(lg.competitorGaps))  lg.competitorGaps.addTo(map); }
+    else                        { map.removeLayer(lg.competitorGaps); }
   }, [layers]);
 
   return (
@@ -521,6 +636,24 @@ const MapView: React.FC<MapViewProps> = ({
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#0891b2' }} />
               <span className="text-gray-600 dark:text-gray-400">Centro comercial (POI)</span>
+            </div>
+          </>
+        )}
+        {layers.poiNuclei && poiNuclei.length > 0 && (
+          <>
+            <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#f97316' }} />
+              <span className="text-gray-600 dark:text-gray-400">Zona comercial</span>
+            </div>
+          </>
+        )}
+        {layers.competitorGaps && competitorGaps.length > 0 && (
+          <>
+            <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: '#7c3aed' }} />
+              <span className="text-gray-600 dark:text-gray-400">Brecha de mercado</span>
             </div>
           </>
         )}

@@ -16,12 +16,17 @@ interface Props {
   hiddenFormats:      string[];
   onFormatToggle:     (format: string) => void;
   settlementCount?:   number;
+  nucleiCount?:       number;
+  gapsCount?:         number;
+  onBuildNuclei?:     () => void;
+  buildingNuclei?:    boolean;
 }
 
 const FilterControls: React.FC<Props> = ({
   filters, layers, onFilterChange, onLayerToggle, onCalculate, calculating,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  settlementCount = 0,
+  settlementCount = 0, nucleiCount = 0, gapsCount = 0,
+  onBuildNuclei, buildingNuclei = false,
 }) => {
   return (
     <div className="p-3 border-b border-gray-200 dark:border-gray-700 space-y-3 flex-shrink-0">
@@ -33,10 +38,12 @@ const FilterControls: React.FC<Props> = ({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {([
-            ['stores',        'Nuestras tiendas'],
-            ['competitors',   'Competidores'],
-            ['opportunities', 'Oportunidades'],
-            ['settlements',   `Asentamientos${settlementCount > 0 ? ` (${settlementCount})` : ''}`],
+            ['stores',         'Nuestras tiendas'],
+            ['competitors',    'Competidores'],
+            ['opportunities',  'Oportunidades'],
+            ['settlements',    `Asentamientos${settlementCount > 0 ? ` (${settlementCount})` : ''}`],
+            ['poiNuclei',      `Zonas${nucleiCount > 0 ? ` (${nucleiCount})` : ''}`],
+            ['competitorGaps', `Brechas${gapsCount > 0 ? ` (${gapsCount})` : ''}`],
           ] as [keyof LayerState, string][]).map(([key, label]) => (
             <button
               key={key}
@@ -169,6 +176,19 @@ const FilterControls: React.FC<Props> = ({
           </p>
         )}
       </div>
+
+      {/* Build POI nuclei button */}
+      {onBuildNuclei && (
+        <button
+          onClick={onBuildNuclei}
+          disabled={buildingNuclei}
+          className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
+                     text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Clusteriza los POIs en zonas comerciales y calcula brechas de mercado"
+        >
+          {buildingNuclei ? '⏳ Construyendo zonas…' : '🏗 Construir zonas comerciales'}
+        </button>
+      )}
 
       {/* Recalculate button */}
       <button

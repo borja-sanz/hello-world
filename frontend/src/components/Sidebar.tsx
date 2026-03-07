@@ -32,6 +32,10 @@ interface Props {
   hiddenFormats:      string[];
   onFormatToggle:     (format: string) => void;
   settlementCount?:   number;
+  nucleiCount?:       number;
+  gapsCount?:         number;
+  onBuildNuclei?:     () => void;
+  buildingNuclei?:    boolean;
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -39,7 +43,8 @@ const Sidebar: React.FC<Props> = ({
   onFilterChange, onLayerToggle, onOppClick, onTradeAreaClose, onCalculate, onOpenAdmin,
   ntlData, ntlLoading = false, onNtlClose, onSettlementClick,
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
-  settlementCount = 0,
+  settlementCount = 0, nucleiCount = 0, gapsCount = 0,
+  onBuildNuclei, buildingNuclei = false,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -109,6 +114,10 @@ const Sidebar: React.FC<Props> = ({
             hiddenFormats={hiddenFormats}
             onFormatToggle={onFormatToggle}
             settlementCount={settlementCount}
+            nucleiCount={nucleiCount}
+            gapsCount={gapsCount}
+            onBuildNuclei={onBuildNuclei}
+            buildingNuclei={buildingNuclei}
           />
 
           {/* Trade area panel */}

@@ -780,4 +780,169 @@ router.post('/migrate', async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
+/**
+ * POST /api/admin/build-poi-nuclei
+ *
+ * Clusters poi_cache using ST_ClusterDBSCAN into commercial nuclei (zones),
+ * then enriches each cluster with competitor counts, nearest own-store distance,
+ * and an opportunity_score. Rebuilds the poi_nuclei table from scratch.
+ *
+ * This can take 20-60s depending on poi_cache size. Call once and then use
+ * GET /api/scoring/poi-nuclei for fast reads.
+ */
+router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Respond immediately — heavy work runs async
+    res.json({ message: 'POI nuclei build started — this may take up to 60 seconds', status: 'running' });
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS poi_nuclei (
+        id                    SERIAL PRIMARY KEY,
+        cluster_id            INTEGER NOT NULL,
+        lat                   FLOAT NOT NULL,
+        lng                   FLOAT NOT NULL,
+        poi_count             INTEGER NOT NULL DEFAULT 0,
+        weighted_score        FLOAT   NOT NULL DEFAULT 0,
+        municipio_name        TEXT,
+        department            TEXT,
+        cnt_marketplace       INTEGER DEFAULT 0,
+        cnt_bank              INTEGER DEFAULT 0,
+        cnt_pharmacy          INTEGER DEFAULT 0,
+        cnt_school            INTEGER DEFAULT 0,
+        cnt_bus_station       INTEGER DEFAULT 0,
+        cnt_fuel              INTEGER DEFAULT 0,
+        cnt_money_transfer    INTEGER DEFAULT 0,
+        cnt_atm               INTEGER DEFAULT 0,
+        cnt_supermarket       INTEGER DEFAULT 0,
+        nearest_own_store_km  FLOAT,
+        competitor_count_1km  INTEGER DEFAULT 0,
+        competitor_count_3km  INTEGER DEFAULT 0,
+        opportunity_score     INTEGER DEFAULT 0
+      )
+    `);
+
+    await pool.query(`DELETE FROM poi_nuclei`);
+
+    await pool.query(`
+      INSERT INTO poi_nuclei (
+        cluster_id, lat, lng, poi_count, weighted_score,
+        municipio_name, department,
+        cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
+        cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
+        nearest_own_store_km, competitor_count_1km, competitor_count_3km,
+        opportunity_score
+      )
+      WITH clustered AS (
+        SELECT
+          p.poi_type,
+          p.lat::float  AS pt_lat,
+          p.lng::float  AS pt_lng,
+          p.geometry,
+          ST_ClusterDBSCAN(p.geometry, eps := 0.005, minpoints := 2) OVER () AS cid
+        FROM poi_cache p
+        WHERE p.geometry IS NOT NULL
+          AND p.poi_type IN (
+            'marketplace','market','bank','pharmacy','school',
+            'bus_station','fuel','money_transfer','atm','supermarket','hospital','hardware'
+          )
+      ),
+      nuclei AS (
+        SELECT
+          cid,
+          AVG(pt_lat)::float AS lat,
+          AVG(pt_lng)::float AS lng,
+          COUNT(*)::int      AS poi_count,
+          SUM(CASE poi_type
+            WHEN 'marketplace'    THEN 3.0
+            WHEN 'market'         THEN 3.0
+            WHEN 'bank'           THEN 2.0
+            WHEN 'pharmacy'       THEN 1.5
+            WHEN 'bus_station'    THEN 1.2
+            WHEN 'fuel'           THEN 0.8
+            ELSE 1.0
+          END)::float AS weighted_score,
+          SUM(CASE WHEN poi_type IN ('marketplace','market') THEN 1 ELSE 0 END)::int AS cnt_marketplace,
+          SUM(CASE WHEN poi_type = 'bank'           THEN 1 ELSE 0 END)::int AS cnt_bank,
+          SUM(CASE WHEN poi_type = 'pharmacy'       THEN 1 ELSE 0 END)::int AS cnt_pharmacy,
+          SUM(CASE WHEN poi_type = 'school'         THEN 1 ELSE 0 END)::int AS cnt_school,
+          SUM(CASE WHEN poi_type = 'bus_station'    THEN 1 ELSE 0 END)::int AS cnt_bus_station,
+          SUM(CASE WHEN poi_type = 'fuel'           THEN 1 ELSE 0 END)::int AS cnt_fuel,
+          SUM(CASE WHEN poi_type = 'money_transfer' THEN 1 ELSE 0 END)::int AS cnt_money_transfer,
+          SUM(CASE WHEN poi_type = 'atm'            THEN 1 ELSE 0 END)::int AS cnt_atm,
+          SUM(CASE WHEN poi_type = 'supermarket'    THEN 1 ELSE 0 END)::int AS cnt_supermarket
+        FROM clustered
+        WHERE cid IS NOT NULL
+        GROUP BY cid
+      ),
+      enriched AS (
+        SELECT
+          n.*,
+          mun.name       AS municipio_name,
+          mun.department,
+          (
+            SELECT ROUND(MIN(ST_Distance(
+              s.geometry::geography,
+              ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography
+            )) / 1000)
+            FROM stores s
+            WHERE s.geometry IS NOT NULL AND s.status = 'open'
+          )::float AS nearest_own_store_km,
+          (
+            SELECT COUNT(*) FROM competitors c
+            WHERE c.geometry IS NOT NULL
+              AND ST_DWithin(
+                c.geometry::geography,
+                ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography,
+                1000
+              )
+          )::int AS competitor_count_1km,
+          (
+            SELECT COUNT(*) FROM competitors c
+            WHERE c.geometry IS NOT NULL
+              AND ST_DWithin(
+                c.geometry::geography,
+                ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography,
+                3000
+              )
+          )::int AS competitor_count_3km
+        FROM nuclei n
+        CROSS JOIN LATERAL (
+          SELECT name, department
+          FROM municipios
+          WHERE centroid IS NOT NULL
+          ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)
+          LIMIT 1
+        ) mun
+      )
+      SELECT
+        cid,
+        lat, lng,
+        poi_count, weighted_score,
+        municipio_name, department,
+        cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
+        cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
+        nearest_own_store_km,
+        competitor_count_1km,
+        competitor_count_3km,
+        LEAST(100, GREATEST(0,
+          LEAST(50, weighted_score * 3.0) +
+          LEAST(30, COALESCE(nearest_own_store_km, 10) * 3.0) +
+          CASE
+            WHEN competitor_count_1km = 0 AND competitor_count_3km = 0 THEN 5
+            WHEN competitor_count_1km BETWEEN 1 AND 3               THEN 20
+            WHEN competitor_count_1km BETWEEN 4 AND 8               THEN 10
+            ELSE -5
+          END
+        ))::int AS opportunity_score
+      FROM enriched
+      ORDER BY opportunity_score DESC
+    `);
+
+    console.log('POI nuclei build complete');
+  } catch (err: any) {
+    console.error('build-poi-nuclei error:', err.message);
+  }
+});
+
 export default router;
+

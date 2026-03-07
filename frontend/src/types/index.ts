@@ -111,6 +111,42 @@ export interface LayerState {
   competitors: boolean;
   opportunities: boolean;
   settlements: boolean;
+  poiNuclei: boolean;
+  competitorGaps: boolean;
+}
+
+export interface PoiNucleus {
+  id: number;
+  cluster_id: number;
+  lat: number;
+  lng: number;
+  poi_count: number;
+  weighted_score: number;
+  municipio_name: string;
+  department: string;
+  cnt_marketplace: number;
+  cnt_bank: number;
+  cnt_pharmacy: number;
+  cnt_school: number;
+  cnt_bus_station: number;
+  cnt_fuel: number;
+  cnt_money_transfer: number;
+  cnt_atm: number;
+  cnt_supermarket: number;
+  nearest_own_store_km: number | null;
+  competitor_count_1km: number;
+  competitor_count_3km: number;
+  opportunity_score: number;
+}
+
+export interface CompetitorGap {
+  cluster_id: number;
+  lat: number;
+  lng: number;
+  competitor_count: number;
+  chains: string[];
+  nearest_own_store_km: number | null;
+  gap_score: number;
 }
 
 export interface SettlementScore {

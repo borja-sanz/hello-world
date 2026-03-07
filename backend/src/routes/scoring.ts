@@ -406,6 +406,128 @@ router.get('/settlements', async (req: Request, res: Response, next: NextFunctio
 });
 
 /**
+ * GET /api/scoring/poi-nuclei?limit=200&min_score=0
+ *
+ * Returns pre-computed commercial nuclei from the poi_nuclei table.
+ * Build the table first via POST /api/admin/build-poi-nuclei.
+ */
+router.get('/poi-nuclei', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const limit    = Math.min(parseInt((req.query.limit    as string) || '200'), 500);
+    const minScore = parseInt((req.query.min_score as string) || '0');
+
+    // Check if table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'poi_nuclei'
+      ) AS exists
+    `);
+    if (!tableCheck.rows[0].exists) {
+      res.json({ count: 0, nuclei: [], message: 'poi_nuclei table not built yet. POST /api/admin/build-poi-nuclei first.' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT id, cluster_id, lat, lng, poi_count, weighted_score,
+              municipio_name, department,
+              cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
+              cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
+              nearest_own_store_km, competitor_count_1km, competitor_count_3km,
+              opportunity_score
+       FROM poi_nuclei
+       WHERE opportunity_score >= $1
+       ORDER BY opportunity_score DESC
+       LIMIT $2`,
+      [minScore, limit]
+    );
+
+    res.json({ count: result.rows.length, nuclei: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/scoring/competitor-gaps?limit=200&min_gap_score=0
+ *
+ * Finds competitor clusters that have no own-store coverage within 1.5 km.
+ * These are "proven-demand gaps" — competitor presence validates demand,
+ * and the absence of own stores makes them actionable targets.
+ *
+ * Each gap cluster is scored by: competitor density (up to 60 pts) +
+ * distance to nearest own store (up to 40 pts — further = better).
+ */
+router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const limit       = Math.min(parseInt((req.query.limit        as string) || '200'), 500);
+    const minGapScore = parseInt((req.query.min_gap_score as string) || '0');
+
+    const result = await pool.query(
+      `WITH distances AS (
+         SELECT
+           c.name,
+           c.chain,
+           c.lat::float  AS lat,
+           c.lng::float  AS lng,
+           c.geometry,
+           COALESCE(
+             (SELECT ROUND(MIN(ST_Distance(
+                s.geometry::geography,
+                c.geometry::geography
+              )) / 1000)
+              FROM stores s
+              WHERE s.geometry IS NOT NULL AND s.status = 'open'),
+             50
+           )::float AS nearest_own_store_km
+         FROM competitors c
+         WHERE c.geometry IS NOT NULL
+       ),
+       uncovered AS (
+         SELECT * FROM distances WHERE nearest_own_store_km > 1.5
+       ),
+       clustered AS (
+         SELECT *,
+           ST_ClusterDBSCAN(geometry, eps := 0.009, minpoints := 1) OVER () AS cluster_id
+         FROM uncovered
+       )
+       SELECT
+         cluster_id,
+         AVG(lat)::float  AS lat,
+         AVG(lng)::float  AS lng,
+         COUNT(*)::int    AS competitor_count,
+         ARRAY_AGG(chain) AS chains,
+         MIN(nearest_own_store_km)::int AS nearest_own_store_km,
+         LEAST(100, GREATEST(0,
+           LEAST(60, COUNT(*)::float * 12.0) +
+           LEAST(40, MIN(nearest_own_store_km)::float * 2.0)
+         ))::int AS gap_score
+       FROM clustered
+       WHERE cluster_id IS NOT NULL
+       GROUP BY cluster_id
+       HAVING COUNT(*) >= 1
+         AND LEAST(100, GREATEST(0,
+           LEAST(60, COUNT(*)::float * 12.0) +
+           LEAST(40, MIN(nearest_own_store_km)::float * 2.0)
+         ))::int >= $1
+       ORDER BY gap_score DESC
+       LIMIT $2`,
+      [minGapScore, limit]
+    );
+
+    // Deduplicate chains array in JS
+    const gaps = result.rows.map(r => ({
+      ...r,
+      chains: [...new Set(r.chains as string[])],
+    }));
+
+    res.json({ count: gaps.length, gaps });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/scoring/calculate-all
  * Recalculates scores for all municipios. Can take 30–60s for full dataset.
  */

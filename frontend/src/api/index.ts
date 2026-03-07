@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   Store, Competitor, Municipio, OpportunityScore, SettlementScore,
   TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse, PoiCluster,
+  PoiNucleus, CompetitorGap,
 } from '../types';
 
 // In production (Render), VITE_API_URL is set to '' so requests go to
@@ -257,6 +258,25 @@ export const refreshDriveTimes = async (apiKey: string) => {
 export const refreshAllGooglePois = async (apiKey: string) => {
   const { data } = await api.post('/api/pois/refresh/all', { api_key: apiKey });
   return data as { message: string };
+};
+
+export const fetchPoiNuclei = async (params?: {
+  limit?: number; min_score?: number;
+}): Promise<{ count: number; nuclei: PoiNucleus[]; message?: string }> => {
+  const { data } = await api.get('/api/scoring/poi-nuclei', { params });
+  return data;
+};
+
+export const fetchCompetitorGaps = async (params?: {
+  limit?: number; min_gap_score?: number;
+}): Promise<{ count: number; gaps: CompetitorGap[] }> => {
+  const { data } = await api.get('/api/scoring/competitor-gaps', { params });
+  return data;
+};
+
+export const buildPoiNuclei = async (): Promise<{ message: string; status: string }> => {
+  const { data } = await api.post('/api/admin/build-poi-nuclei');
+  return data;
 };
 
 // ─── OSM (kept for backward-compat; UI now uses /api/pois) ───────────────────

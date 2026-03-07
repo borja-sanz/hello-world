@@ -8,11 +8,13 @@ import {
   fetchSettlementOpportunities,
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
+  fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
   Store, Competitor, OpportunityScore, SettlementScore, TradeAreaAnalysis,
   FilterState, LayerState, NtlSettlementsResponse, NtlSettlement, PoiCluster,
+  PoiNucleus, CompetitorGap,
 } from './types';
 
 const App: React.FC = () => {
@@ -37,6 +39,10 @@ const App: React.FC = () => {
   const [ntlData,           setNtlData]           = useState<NtlSettlementsResponse | null>(null);
   const [ntlLoading,        setNtlLoading]        = useState(false);
   const [poiClusters,       setPoiClusters]       = useState<PoiCluster[]>([]);
+  const [poiNuclei,         setPoiNuclei]         = useState<PoiNucleus[]>([]);
+  const [competitorGaps,    setCompetitorGaps]    = useState<CompetitorGap[]>([]);
+  const [buildingNuclei,    setBuildingNuclei]    = useState(false);
+  const gapsLoadedRef = React.useRef(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [loading,      setLoading]      = useState(false);
@@ -49,6 +55,7 @@ const App: React.FC = () => {
 
   const [layers, setLayers] = useState<LayerState>({
     stores: true, competitors: true, opportunities: true, settlements: false,
+    poiNuclei: false, competitorGaps: false,
   });
 
   const [filters, setFilters] = useState<FilterState>({
@@ -150,10 +157,27 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // ── Layer toggle ──────────────────────────────────────────────────────────
-  const handleLayerToggle = useCallback((key: keyof LayerState) => {
+  // ── Layer toggle — with lazy loading for gaps and nuclei ─────────────────
+  const handleLayerToggle = useCallback(async (key: keyof LayerState) => {
     setLayers(l => ({ ...l, [key]: !l[key] }));
-  }, []);
+
+    // Lazy-load competitor gaps the first time the layer is turned on
+    if (key === 'competitorGaps' && !gapsLoadedRef.current) {
+      gapsLoadedRef.current = true;
+      try {
+        const result = await fetchCompetitorGaps({ limit: 200 });
+        setCompetitorGaps(result.gaps);
+      } catch { /* silent */ }
+    }
+
+    // Lazy-load poi nuclei the first time the layer is turned on
+    if (key === 'poiNuclei' && poiNuclei.length === 0) {
+      try {
+        const result = await fetchPoiNuclei({ limit: 200 });
+        setPoiNuclei(result.nuclei);
+      } catch { /* silent */ }
+    }
+  }, [poiNuclei.length]);
 
   // ── Chain / format visibility toggles ────────────────────────────────────
   const handleChainToggle = useCallback((chain: string) => {
@@ -166,6 +190,29 @@ const App: React.FC = () => {
     setHiddenFormats(prev =>
       prev.includes(format) ? prev.filter(f => f !== format) : [...prev, format]
     );
+  }, []);
+
+  // ── Build POI nuclei (admin action) ──────────────────────────────────────
+  const handleBuildNuclei = useCallback(async () => {
+    setBuildingNuclei(true);
+    try {
+      await buildPoiNuclei();
+      // Poll for results after 30s (build is async on server)
+      setTimeout(async () => {
+        try {
+          const result = await fetchPoiNuclei({ limit: 200 });
+          setPoiNuclei(result.nuclei);
+          // Also refresh gaps since new nuclei may change coverage analysis
+          gapsLoadedRef.current = false;
+          const gaps = await fetchCompetitorGaps({ limit: 200 });
+          setCompetitorGaps(gaps.gaps);
+          gapsLoadedRef.current = true;
+        } catch { /* silent */ }
+        setBuildingNuclei(false);
+      }, 35000);
+    } catch {
+      setBuildingNuclei(false);
+    }
   }, []);
 
   // ── Filtered data passed to map ───────────────────────────────────────────
@@ -296,6 +343,8 @@ const App: React.FC = () => {
             poiClusters={poiClusters}
             onOppBubbleClick={handleOppClick}
             onPoiClusterClick={(c) => handleMapClick(c.lat, c.lng)}
+            poiNuclei={poiNuclei}
+            competitorGaps={competitorGaps}
           />
         </div>
 
@@ -323,6 +372,10 @@ const App: React.FC = () => {
           hiddenFormats={hiddenFormats}
           onFormatToggle={handleFormatToggle}
           settlementCount={settlementScores.length}
+          nucleiCount={poiNuclei.length}
+          gapsCount={competitorGaps.length}
+          onBuildNuclei={handleBuildNuclei}
+          buildingNuclei={buildingNuclei}
         />
       </main>
 
