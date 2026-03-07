@@ -806,7 +806,22 @@ export async function seedPoiCacheFromOsm(force = false): Promise<number> {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+async function migratePoiCacheSource(): Promise<void> {
+  // Ensure the source column exists — it was added after the initial CREATE TABLE,
+  // so containers created before the migration will be missing it, causing all
+  // Google Places INSERTs to fail silently.
+  await pool.query(`
+    ALTER TABLE poi_cache
+      ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'osm'
+  `).catch(e => console.warn('[autoSeed] poi_cache source migration skipped:', e.message));
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS poi_cache_source_idx ON poi_cache (source)
+  `).catch(() => {});
+}
+
 export async function autoSeedIfEmpty(): Promise<void> {
+  await migratePoiCacheSource();        // ensure source column exists for Google Places inserts
   await seedMunicipios();
   await seedSocioeconomicIndicators();  // department-level poverty + remittance baseline
   await seedMunicipioDetail();          // municipio-specific overrides (poverty + area_km2)

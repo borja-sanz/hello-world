@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS poi_cache (
     geometry        GEOMETRY(Point, 4326),
     tags            JSONB,
     municipio_id    INTEGER REFERENCES municipios(id),
+    source          VARCHAR(30) DEFAULT 'osm',
     fetched_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
