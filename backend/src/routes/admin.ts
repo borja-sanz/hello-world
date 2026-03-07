@@ -7,6 +7,7 @@ import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
 import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../services/googlePlacesService';
 import { exportPoiCacheSeed, importPoiCacheSeed } from '../scripts/poiSeed';
+import { getRefreshLog } from '../services/googlePoiService';
 import { seedPoiCacheFromOsm } from '../scripts/autoSeed';
 import { AppError } from '../middleware/errorHandler';
 
@@ -974,7 +975,15 @@ router.post('/save-poi-seed', async (_req: Request, res: Response, next: NextFun
   try {
     const count = await exportPoiCacheSeed();
     if (count === 0) {
-      res.json({ message: 'poi_cache has no Google Places rows to export — sync POIs first', count: 0 });
+      const log = await getRefreshLog(3).catch(() => []);
+      res.json({
+        message: 'poi_cache has no Google Places rows to export — sync POIs first',
+        count: 0,
+        hint: log.length > 0
+          ? `Last refresh: ${log[0].query_type} at ${log[0].executed_at} — status: ${log[0].status}, rows: ${log[0].records_fetched}${log[0].error_msg ? `, error: ${log[0].error_msg}` : ''}`
+          : 'No refresh has been run yet in this session',
+        recent_log: log,
+      });
     } else {
       res.json({ message: `Exported ${count} POIs to backend/data/poi_cache_seed.json — commit this file to persist across sessions`, count });
     }

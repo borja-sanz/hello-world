@@ -209,39 +209,66 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
   const depts = Object.keys(DEPT_CENTROIDS);
   startProgress('pois', depts.length * NEARBY_TYPES.length);
 
+  // ── Pass 1: fetch all results from Google (no DB writes yet) ─────────────
+  // Collecting before deleting ensures existing data is never destroyed when
+  // the API returns 0 results (quota hit, key issue, network failure, etc.).
+  type Pending = { r: PoiRefreshResult; places: any[] };
+  const pending: Pending[] = [];
+  let totalFound = 0;
+  let quotaHit = false;
+
+  outer: for (const dept of depts) {
+    const { lat, lng } = DEPT_CENTROIDS[dept];
+    for (const { google_type, poi_type, keyword } of NEARBY_TYPES) {
+      const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
+      try {
+        const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey, 3, keyword);
+        r.found = places.length;
+        totalFound += places.length;
+        pending.push({ r, places });
+      } catch (err: any) {
+        r.error = err.message;
+        if (/quota/i.test(err.message)) {
+          endProgress(`Cuota agotada en ${dept} – ${poi_type}`);
+          results.push(r);
+          quotaHit = true;
+          break outer;
+        }
+      }
+      tickProgress(`${dept} – ${poi_type}`, 0);
+      results.push(r);
+      await sleep(300);
+    }
+  }
+
+  // ── Pass 2: only touch the DB if we actually got results ─────────────────
+  if (totalFound === 0) {
+    endProgress(quotaHit ? undefined : 'API devolvió 0 resultados — datos existentes conservados');
+    await pool.query(
+      `INSERT INTO osm_refresh_log (query_type, records_fetched, duration_ms, status, error_msg)
+       VALUES ('google_pois', 0, $1, 'warning', $2)`,
+      [Date.now() - start, 'API returned 0 results — existing rows preserved']
+    ).catch(() => {});
+    return results;
+  }
+
   const client = await pool.connect();
   try {
-    // Clear old Google Places POIs before re-fetching (full refresh)
-    // Preserve marketplace, lds_church and anchor_retailer — each has its own dedicated refresh
+    // Safe to delete now — we know we have fresh data to replace them with
     await client.query(
       `DELETE FROM poi_cache
        WHERE source = 'google_places'
          AND poi_type NOT IN ('marketplace','lds_church','anchor_retailer')`
     );
-
-    for (const dept of depts) {
-      const { lat, lng } = DEPT_CENTROIDS[dept];
-      for (const { google_type, poi_type, keyword } of NEARBY_TYPES) {
-        const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
-        try {
-          const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey, 3, keyword);
-          r.found = places.length;
-          await client.query('BEGIN');
-          r.inserted = await upsertPois(places, poi_type, client);
-          await client.query('COMMIT');
-          totalInserted += r.inserted;
-        } catch (err: any) {
-          await client.query('ROLLBACK').catch(() => {});
-          r.error = err.message;
-          if (/quota/i.test(err.message)) {
-            endProgress(`Cuota agotada en ${dept} – ${poi_type}`);
-            results.push(r);
-            break;
-          }
-        }
-        tickProgress(`${dept} – ${poi_type}`, r.inserted);
-        results.push(r);
-        await sleep(300);
+    for (const { r, places } of pending) {
+      try {
+        await client.query('BEGIN');
+        r.inserted = await upsertPois(places, r.poi_type, client);
+        await client.query('COMMIT');
+        totalInserted += r.inserted;
+      } catch (err: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        r.error = err.message;
       }
     }
     endProgress();
@@ -267,34 +294,48 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
 // the department name.
 
 export async function refreshMercadosInformales(apiKey: string): Promise<{ dept: string; found: number; inserted: number; error?: string }[]> {
-  const results: { dept: string; found: number; inserted: number; error?: string }[] = [];
+  type R = { dept: string; found: number; inserted: number; error?: string };
+  const results: R[] = [];
   const depts = Object.keys(DEPT_CENTROIDS);
   startProgress('mercados', depts.length);
 
-  // Clear old marketplace entries from Google Places before re-fetching
-  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'marketplace'`);
+  // Pass 1: fetch
+  const pending: { r: R; places: any[] }[] = [];
+  let totalFound = 0;
+  for (const dept of depts) {
+    const r: R = { dept, found: 0, inserted: 0 };
+    try {
+      const places = await nearbyAllPages(
+        DEPT_CENTROIDS[dept].lat, DEPT_CENTROIDS[dept].lng,
+        60_000, 'establishment', apiKey, 3, 'mercado'
+      );
+      r.found = places.length;
+      totalFound += places.length;
+      pending.push({ r, places });
+    } catch (err: any) {
+      r.error = err.message;
+      if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
+    }
+    tickProgress(`Mercados – ${dept}`, 0);
+    results.push(r);
+    await sleep(300);
+  }
 
+  if (totalFound === 0) { endProgress(); return results; }
+
+  // Pass 2: delete then insert
+  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'marketplace'`);
   const client = await pool.connect();
   try {
-    for (const dept of depts) {
-      const r = { dept, found: 0, inserted: 0, error: undefined as string | undefined };
+    for (const { r, places } of pending) {
       try {
-        const places = await nearbyAllPages(
-          DEPT_CENTROIDS[dept].lat, DEPT_CENTROIDS[dept].lng,
-          60_000, 'establishment', apiKey, 3, 'mercado'
-        );
-        r.found = places.length;
         await client.query('BEGIN');
         r.inserted = await upsertPois(places, 'marketplace', client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
         r.error = err.message;
-        if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
       }
-      tickProgress(`Mercados – ${dept}`, r.inserted);
-      results.push(r);
-      await sleep(300);
     }
     endProgress();
   } finally {
@@ -309,32 +350,47 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
 // Called only from the full refresh — no dedicated admin button.
 
 export async function refreshAnchorRetailers(apiKey: string): Promise<{ chain: string; dept: string; found: number; inserted: number; error?: string }[]> {
-  const results: { chain: string; dept: string; found: number; inserted: number; error?: string }[] = [];
+  type R = { chain: string; dept: string; found: number; inserted: number; error?: string };
+  const results: R[] = [];
   const depts = Object.keys(DEPT_CENTROIDS);
   startProgress('anchor_retailers', depts.length * ANCHOR_RETAILER_CHAINS.length);
 
-  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'anchor_retailer'`);
+  // Pass 1: fetch
+  const pending: { r: R; places: any[] }[] = [];
+  let totalFound = 0;
+  outer: for (const chain of ANCHOR_RETAILER_CHAINS) {
+    for (const dept of depts) {
+      const r: R = { chain, dept, found: 0, inserted: 0 };
+      try {
+        const { lat, lng } = DEPT_CENTROIDS[dept];
+        const places = await nearbyAllPages(lat, lng, 60_000, 'establishment', apiKey, 3, chain);
+        r.found = places.length;
+        totalFound += places.length;
+        pending.push({ r, places });
+      } catch (err: any) {
+        r.error = err.message;
+        if (/quota/i.test(err.message)) { endProgress(`Cuota agotada – ${chain} ${dept}`); results.push(r); break outer; }
+      }
+      tickProgress(`${chain} – ${dept}`, 0);
+      results.push(r);
+      await sleep(300);
+    }
+  }
 
+  if (totalFound === 0) { endProgress(); return results; }
+
+  // Pass 2: delete then insert
+  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'anchor_retailer'`);
   const client = await pool.connect();
   try {
-    for (const chain of ANCHOR_RETAILER_CHAINS) {
-      for (const dept of depts) {
-        const r = { chain, dept, found: 0, inserted: 0, error: undefined as string | undefined };
-        try {
-          const { lat, lng } = DEPT_CENTROIDS[dept];
-          const places = await nearbyAllPages(lat, lng, 60_000, 'establishment', apiKey, 3, chain);
-          r.found = places.length;
-          await client.query('BEGIN');
-          r.inserted = await upsertPois(places, 'anchor_retailer', client);
-          await client.query('COMMIT');
-        } catch (err: any) {
-          await client.query('ROLLBACK').catch(() => {});
-          r.error = err.message;
-          if (/quota/i.test(err.message)) { endProgress(`Cuota agotada – ${chain} ${dept}`); results.push(r); break; }
-        }
-        tickProgress(`${chain} – ${dept}`, r.inserted);
-        results.push(r);
-        await sleep(300);
+    for (const { r, places } of pending) {
+      try {
+        await client.query('BEGIN');
+        r.inserted = await upsertPois(places, 'anchor_retailer', client);
+        await client.query('COMMIT');
+      } catch (err: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        r.error = err.message;
       }
     }
     endProgress();
@@ -348,32 +404,47 @@ export async function refreshAnchorRetailers(apiKey: string): Promise<{ chain: s
 // ─── Refresh: LDS churches via Text Search ───────────────────────────────────
 
 export async function refreshLdsChurches(apiKey: string): Promise<{ dept: string; found: number; inserted: number; error?: string }[]> {
-  const results: { dept: string; found: number; inserted: number; error?: string }[] = [];
+  type R = { dept: string; found: number; inserted: number; error?: string };
+  const results: R[] = [];
   const depts = Object.keys(DEPT_CENTROIDS);
   startProgress('lds', depts.length);
 
-  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'lds_church'`);
+  // Pass 1: fetch
+  const pending: { r: R; places: any[] }[] = [];
+  let totalFound = 0;
+  for (const dept of depts) {
+    const r: R = { dept, found: 0, inserted: 0 };
+    try {
+      const places = await textSearchAllPages(
+        `Iglesia de Jesucristo de los Santos de los Últimos Días ${dept} Guatemala`, apiKey
+      );
+      r.found = places.length;
+      totalFound += places.length;
+      pending.push({ r, places });
+    } catch (err: any) {
+      r.error = err.message;
+      if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
+    }
+    tickProgress(`Iglesias SUD – ${dept}`, 0);
+    results.push(r);
+    await sleep(300);
+  }
 
+  if (totalFound === 0) { endProgress(); return results; }
+
+  // Pass 2: delete then insert
+  await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'lds_church'`);
   const client = await pool.connect();
   try {
-    for (const dept of depts) {
-      const r = { dept, found: 0, inserted: 0, error: undefined as string | undefined };
+    for (const { r, places } of pending) {
       try {
-        const places = await textSearchAllPages(
-          `Iglesia de Jesucristo de los Santos de los Últimos Días ${dept} Guatemala`, apiKey
-        );
-        r.found = places.length;
         await client.query('BEGIN');
         r.inserted = await upsertPois(places, 'lds_church', client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
         r.error = err.message;
-        if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
       }
-      tickProgress(`Iglesias SUD – ${dept}`, r.inserted);
-      results.push(r);
-      await sleep(300);
     }
     endProgress();
   } finally {
