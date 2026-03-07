@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { FilterState, LayerState } from '../types';
 
 const STORE_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'] as const;
@@ -32,6 +32,9 @@ const FilterControls: React.FC<Props> = ({
   onBuildNuclei, buildingNuclei = false,
   gapFilter, onGapFilterChange, gapTierCounts,
 }) => {
+  const [chainsOpen,  setChainsOpen]  = useState(false);
+  const [formatsOpen, setFormatsOpen] = useState(false);
+
   return (
     <div className="p-3 space-y-3">
 
@@ -95,65 +98,99 @@ const FilterControls: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Competitor chain checkboxes */}
+      {/* Competitor chain checkboxes — collapsible */}
       {chains.length > 0 && (
         <div>
-          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
-            Competidores
-          </div>
-          <div className="space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
-            {chains.map(({ chain, count }) => {
-              const hidden = hiddenChains.includes(chain);
+          <button
+            onClick={() => setChainsOpen(o => !o)}
+            className="flex items-center justify-between w-full text-xs font-semibold
+                       text-gray-500 dark:text-gray-400 uppercase tracking-wide"
+          >
+            <span>
+              Competidores
+              {hiddenChains.length > 0 && (
+                <span className="ml-1 normal-case font-normal text-[10px] text-orange-400">
+                  ({hiddenChains.length} ocultos)
+                </span>
+              )}
+            </span>
+            <span className="text-gray-400 transition-transform duration-150"
+                  style={{ transform: chainsOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+              ▾
+            </span>
+          </button>
+          {chainsOpen && (
+            <div className="mt-1.5 space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
+              {chains.map(({ chain, count }) => {
+                const hidden = hiddenChains.includes(chain);
+                return (
+                  <label key={chain} className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={!hidden}
+                      onChange={() => onChainToggle(chain)}
+                      className="accent-red-500 w-3 h-3 flex-shrink-0"
+                    />
+                    <span className={`text-xs flex-1 truncate ${hidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}`}>
+                      {chain}
+                    </span>
+                    <span className="text-[10px] text-gray-400">{count}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Store format checkboxes — collapsible */}
+      <div>
+        <button
+          onClick={() => setFormatsOpen(o => !o)}
+          className="flex items-center justify-between w-full text-xs font-semibold
+                     text-gray-500 dark:text-gray-400 uppercase tracking-wide"
+        >
+          <span>
+            Formatos propios
+            {hiddenFormats.length > 0 && (
+              <span className="ml-1 normal-case font-normal text-[10px] text-orange-400">
+                ({hiddenFormats.length} ocultos)
+              </span>
+            )}
+          </span>
+          <span className="text-gray-400 transition-transform duration-150"
+                style={{ transform: formatsOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+            ▾
+          </span>
+        </button>
+        {formatsOpen && (
+          <div className="mt-1.5 space-y-1">
+            {STORE_FORMATS.map(fmt => {
+              const hidden = hiddenFormats.includes(fmt);
+              const colors: Record<string, string> = {
+                'Despensa Familiar': '#16a34a',
+                'Maxi Despensa':     '#14532d',
+                'Walmart':           '#1d4ed8',
+                'Paiz':              '#ca8a04',
+                'Other':             '#6b7280',
+              };
               return (
-                <label key={chain} className="flex items-center gap-2 cursor-pointer group">
+                <label key={fmt} className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={!hidden}
-                    onChange={() => onChainToggle(chain)}
-                    className="accent-red-500 w-3 h-3 flex-shrink-0"
+                    onChange={() => onFormatToggle(fmt)}
+                    className="w-3 h-3 flex-shrink-0"
+                    style={{ accentColor: colors[fmt] }}
                   />
-                  <span className={`text-xs flex-1 truncate ${hidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}`}>
-                    {chain}
+                  <span className={`text-xs flex-1 ${hidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}`}>
+                    {fmt}
                   </span>
-                  <span className="text-[10px] text-gray-400">{count}</span>
                 </label>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Store format checkboxes */}
-      <div>
-        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
-          Formatos propios
-        </div>
-        <div className="space-y-1">
-          {STORE_FORMATS.map(fmt => {
-            const hidden = hiddenFormats.includes(fmt);
-            const colors: Record<string, string> = {
-              'Despensa Familiar': '#16a34a',
-              'Maxi Despensa':     '#14532d',
-              'Walmart':           '#1d4ed8',
-              'Paiz':              '#ca8a04',
-              'Other':             '#6b7280',
-            };
-            return (
-              <label key={fmt} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!hidden}
-                  onChange={() => onFormatToggle(fmt)}
-                  className="w-3 h-3 flex-shrink-0"
-                  style={{ accentColor: colors[fmt] }}
-                />
-                <span className={`text-xs flex-1 ${hidden ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}`}>
-                  {fmt}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+        )}
       </div>
 
       {/* Population filter */}
