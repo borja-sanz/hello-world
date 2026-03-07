@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchCalibrationConfig, updateCalibrationConfig,
   resetCalibrationConfig, recalculateAllScores,
-  fetchAdminStats, fetchPoiStatus,
+  fetchAdminStats, fetchPoiStatus, fetchPoiProgress,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, clearAllCompetitors, importStoresCsv, importCompetitorsCsv,
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
@@ -71,6 +71,34 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   const fileInputRef     = useRef<HTMLInputElement>(null);
   const compFileInputRef = useRef<HTMLInputElement>(null);
 
+  // POI refresh progress polling
+  const [poiProgress, setPoiProgress] = useState<{
+    active: boolean; phase: string; step: string;
+    current: number; total: number; inserted: number; error: string | null;
+  } | null>(null);
+  const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startProgressPolling = () => {
+    if (progressPollRef.current) return; // already polling
+    progressPollRef.current = setInterval(async () => {
+      try {
+        const p = await fetchPoiProgress();
+        setPoiProgress(p);
+        if (!p.active) {
+          clearInterval(progressPollRef.current!);
+          progressPollRef.current = null;
+          // Refresh stats after completion
+          load();
+        }
+      } catch { /* ignore */ }
+    }, 2000);
+  };
+
+  // Clean up poll on unmount
+  React.useEffect(() => () => {
+    if (progressPollRef.current) clearInterval(progressPollRef.current);
+  }, []);
+
   // Google Places competitor sync
   const [googleApiKey,    setGoogleApiKey]    = useState('');
   const [syncingGoogle,   setSyncingGoogle]   = useState(false);
@@ -129,7 +157,8 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     try {
       setMsg('⏳ Actualizando POIs comerciales (~5 min, ~$4–12)…');
       await refreshGooglePois(googleApiKey.trim());
-      setMsg('✅ Actualización de POIs iniciada en background');
+      setMsg('');
+      startProgressPolling();
     } catch { setMsg('❌ Error al iniciar actualización de POIs'); }
   };
 
@@ -138,7 +167,8 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     try {
       setMsg('⏳ Buscando mercados informales (~1 min, ~$0.37)…');
       await refreshMercados(googleApiKey.trim());
-      setMsg('✅ Búsqueda de mercados iniciada en background');
+      setMsg('');
+      startProgressPolling();
     } catch { setMsg('❌ Error'); }
   };
 
@@ -147,7 +177,8 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     try {
       setMsg('⏳ Calculando tiempos de viaje a capital (~30 s, ~$0.34)…');
       await refreshDriveTimes(googleApiKey.trim());
-      setMsg('✅ Cálculo de tiempos de viaje iniciado');
+      setMsg('');
+      startProgressPolling();
     } catch { setMsg('❌ Error'); }
   };
 
@@ -155,17 +186,17 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
     if (!confirm('Esto actualizará todos los datos de POIs: tiempos de viaje, mercados, iglesias y POIs comerciales.\nCosto estimado: $5–13. ¿Continuar?')) return;
     try {
-      setMsg('⏳ Actualización completa iniciada (~15 min, ~$5–13)…');
+      setMsg('');
       await refreshAllGooglePois(googleApiKey.trim());
-      setMsg('✅ Actualización completa en background — recalcula scores cuando termine. El archivo seed se guardará automáticamente al finalizar.');
+      startProgressPolling();
     } catch { setMsg('❌ Error'); }
   };
 
   const handleRefreshPoisOsm = async (force = false) => {
     try {
-      setMsg('⏳ Cargando POIs desde OpenStreetMap (gratis, ~30s)…');
-      const r = await refreshPoisOsm(force);
-      setMsg(`✅ ${r.message}`);
+      setMsg('');
+      await refreshPoisOsm(force);
+      startProgressPolling();
     } catch { setMsg('❌ Error al cargar POIs de OSM'); }
   };
 
@@ -821,6 +852,55 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                   )}
                 </div>
               )}
+
+              {/* Live POI refresh progress bar */}
+              {poiProgress && (poiProgress.active || poiProgress.error) && (() => {
+                const pct = poiProgress.total > 0
+                  ? Math.round((poiProgress.current / poiProgress.total) * 100)
+                  : 0;
+                const phaseLabels: Record<string, string> = {
+                  drive_times: 'Tiempos de viaje',
+                  mercados:    'Mercados informales',
+                  lds:         'Iglesias SUD',
+                  pois:        'POIs comerciales',
+                  osm_seed:    'POIs OpenStreetMap',
+                  idle:        'Inactivo',
+                };
+                return (
+                  <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2 bg-blue-50 dark:bg-blue-900/20">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-blue-800 dark:text-blue-300">
+                        {poiProgress.active ? '⏳' : poiProgress.error ? '❌' : '✅'}{' '}
+                        {phaseLabels[poiProgress.phase] ?? poiProgress.phase}
+                      </span>
+                      <span className="text-blue-600 dark:text-blue-400 font-mono">
+                        {poiProgress.current}/{poiProgress.total} · {poiProgress.inserted} POIs
+                      </span>
+                    </div>
+                    <div className="h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          poiProgress.error ? 'bg-red-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${poiProgress.active ? Math.max(pct, 3) : 100}%` }}
+                      />
+                    </div>
+                    {poiProgress.step && (
+                      <p className="text-[10px] text-blue-600 dark:text-blue-400 truncate">
+                        {poiProgress.step}
+                      </p>
+                    )}
+                    {poiProgress.error && (
+                      <p className="text-[10px] text-red-600 dark:text-red-400">{poiProgress.error}</p>
+                    )}
+                    {!poiProgress.active && !poiProgress.error && (
+                      <p className="text-[10px] text-blue-600 dark:text-blue-400">
+                        ✅ Completado — {poiProgress.inserted} POIs insertados
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Recalculate */}
               <button

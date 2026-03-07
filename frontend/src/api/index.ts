@@ -223,6 +223,15 @@ export const fetchPoiClusters = async (
 
 // ─── Google Places POIs ───────────────────────────────────────────────────────
 
+export const fetchPoiProgress = async (): Promise<{
+  active: boolean; phase: string; step: string;
+  current: number; total: number; inserted: number;
+  startedAt: string | null; updatedAt: string | null; error: string | null;
+}> => {
+  const { data } = await api.get('/api/pois/progress');
+  return data;
+};
+
 export const fetchPoiStatus = async () => {
   const { data } = await api.get('/api/pois/status');
   return data as {

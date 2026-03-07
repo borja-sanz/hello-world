@@ -191,6 +191,9 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
   const start = Date.now();
   let totalInserted = 0;
 
+  const depts = Object.keys(DEPT_CENTROIDS);
+  startProgress('pois', depts.length * NEARBY_TYPES.length);
+
   const client = await pool.connect();
   try {
     // Clear old Google Places POIs before re-fetching (full refresh)
@@ -200,7 +203,7 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
          AND poi_type NOT IN ('marketplace','lds_church')`
     );
 
-    for (const dept of Object.keys(DEPT_CENTROIDS)) {
+    for (const dept of depts) {
       const { lat, lng } = DEPT_CENTROIDS[dept];
       for (const { google_type, poi_type } of NEARBY_TYPES) {
         const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
@@ -214,16 +217,20 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
         } catch (err: any) {
           await client.query('ROLLBACK').catch(() => {});
           r.error = err.message;
-          // Quota exhausted — stop entirely
           if (/quota/i.test(err.message)) {
+            endProgress(`Cuota agotada en ${dept} – ${poi_type}`);
             results.push(r);
             break;
           }
         }
+        tickProgress(`${dept} – ${poi_type}`, r.inserted);
         results.push(r);
-        await sleep(300); // polite delay between requests
+        await sleep(300);
       }
     }
+    endProgress();
+  } catch (err: any) {
+    endProgress(err.message);
   } finally {
     client.release();
   }
@@ -242,13 +249,15 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
 
 export async function refreshMercadosInformales(apiKey: string): Promise<{ dept: string; found: number; inserted: number; error?: string }[]> {
   const results: { dept: string; found: number; inserted: number; error?: string }[] = [];
+  const depts = Object.keys(DEPT_CENTROIDS);
+  startProgress('mercados', depts.length);
 
   // Clear old marketplace entries from Google Places before re-fetching
   await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'marketplace'`);
 
   const client = await pool.connect();
   try {
-    for (const dept of Object.keys(DEPT_CENTROIDS)) {
+    for (const dept of depts) {
       const r = { dept, found: 0, inserted: 0, error: undefined as string | undefined };
       try {
         const places = await textSearchAllPages(`mercado ${dept} Guatemala`, apiKey);
@@ -259,11 +268,13 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
         r.error = err.message;
-        if (/quota/i.test(err.message)) { results.push(r); break; }
+        if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
       }
+      tickProgress(`Mercados – ${dept}`, r.inserted);
       results.push(r);
       await sleep(300);
     }
+    endProgress();
   } finally {
     client.release();
   }
@@ -275,12 +286,14 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
 
 export async function refreshLdsChurches(apiKey: string): Promise<{ dept: string; found: number; inserted: number; error?: string }[]> {
   const results: { dept: string; found: number; inserted: number; error?: string }[] = [];
+  const depts = Object.keys(DEPT_CENTROIDS);
+  startProgress('lds', depts.length);
 
   await pool.query(`DELETE FROM poi_cache WHERE source = 'google_places' AND poi_type = 'lds_church'`);
 
   const client = await pool.connect();
   try {
-    for (const dept of Object.keys(DEPT_CENTROIDS)) {
+    for (const dept of depts) {
       const r = { dept, found: 0, inserted: 0, error: undefined as string | undefined };
       try {
         const places = await textSearchAllPages(
@@ -293,11 +306,13 @@ export async function refreshLdsChurches(apiKey: string): Promise<{ dept: string
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
         r.error = err.message;
-        if (/quota/i.test(err.message)) { results.push(r); break; }
+        if (/quota/i.test(err.message)) { endProgress(`Cuota agotada en ${dept}`); results.push(r); break; }
       }
+      tickProgress(`Iglesias SUD – ${dept}`, r.inserted);
       results.push(r);
       await sleep(300);
     }
+    endProgress();
   } finally {
     client.release();
   }
@@ -329,6 +344,7 @@ export async function refreshDriveTimes(apiKey: string): Promise<DriveTimeResult
     lng: parseFloat(r.lng),
   }));
   result.total = municipios.length;
+  startProgress('drive_times', Math.ceil(municipios.length / 100));
 
   const DESTINATION = `${CAPITAL_LAT},${CAPITAL_LNG}`;
   const BATCH_SIZE  = 100; // Distance Matrix allows up to 100 origins per request
@@ -361,13 +377,64 @@ export async function refreshDriveTimes(apiKey: string): Promise<DriveTimeResult
       }
     } catch (err: any) {
       result.error = err.message;
+      endProgress(err.message);
       break;
     }
 
+    tickProgress(`Municipios ${i + 1}–${Math.min(i + BATCH_SIZE, municipios.length)} de ${municipios.length}`, 0);
     if (i + BATCH_SIZE < municipios.length) await sleep(500);
   }
 
+  endProgress(result.error);
   return result;
+}
+
+// ─── In-memory refresh progress ──────────────────────────────────────────────
+// Allows the frontend to poll GET /api/pois/progress for live status.
+
+export interface RefreshProgress {
+  active:     boolean;
+  phase:      string;   // e.g. 'drive_times' | 'mercados' | 'lds' | 'pois' | 'osm_seed' | 'idle'
+  step:       string;   // human-readable current step, e.g. 'Guatemala – bank'
+  current:    number;
+  total:      number;
+  inserted:   number;
+  startedAt:  string | null;
+  updatedAt:  string | null;
+  error:      string | null;
+}
+
+const progress: RefreshProgress = {
+  active: false, phase: 'idle', step: '', current: 0, total: 0,
+  inserted: 0, startedAt: null, updatedAt: null, error: null,
+};
+
+export function getRefreshProgress(): RefreshProgress { return { ...progress }; }
+
+function startProgress(phase: string, total: number) {
+  progress.active    = true;
+  progress.phase     = phase;
+  progress.step      = '';
+  progress.current   = 0;
+  progress.total     = total;
+  progress.inserted  = 0;
+  progress.startedAt = new Date().toISOString();
+  progress.updatedAt = progress.startedAt;
+  progress.error     = null;
+}
+
+function tickProgress(step: string, inserted: number) {
+  progress.current++;
+  progress.step      = step;
+  progress.inserted += inserted;
+  progress.updatedAt = new Date().toISOString();
+}
+
+function endProgress(error?: string) {
+  progress.active    = false;
+  progress.step      = error ? 'Error' : 'Completo';
+  progress.error     = error ?? null;
+  progress.updatedAt = new Date().toISOString();
 }
 
 // ─── Status helpers (same interface as osmService) ───────────────────────────

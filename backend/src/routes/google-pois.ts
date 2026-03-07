@@ -23,6 +23,7 @@ import {
   refreshDriveTimes,
   getPoiCounts,
   getRefreshLog,
+  getRefreshProgress,
 } from '../services/googlePoiService';
 import { exportPoiCacheSeed } from '../scripts/poiSeed';
 import { AppError } from '../middleware/errorHandler';
@@ -34,6 +35,11 @@ function resolveKey(req: Request): string {
   if (!key) throw new AppError(400, 'api_key is required (body) or set GOOGLE_PLACES_API_KEY env var');
   return key;
 }
+
+/** GET /api/pois/progress — live refresh progress for the frontend to poll */
+router.get('/progress', (_req: Request, res: Response) => {
+  res.json(getRefreshProgress());
+});
 
 /** GET /api/pois/status */
 router.get('/status', async (_req: Request, res: Response, next: NextFunction) => {
