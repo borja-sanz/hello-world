@@ -451,12 +451,14 @@ router.get('/poi-nuclei', async (req: Request, res: Response, next: NextFunction
 /**
  * GET /api/scoring/competitor-gaps?limit=200&min_gap_score=0
  *
- * Finds competitor clusters that have no own-store coverage within 1.5 km.
- * These are "proven-demand gaps" — competitor presence validates demand,
- * and the absence of own stores makes them actionable targets.
+ * Finds competitor clusters with no own-store coverage within 1.5 km.
+ * Competitor presence validates demand; the absence of own stores makes
+ * them actionable targets.
  *
- * Each gap cluster is scored by: competitor density (up to 60 pts) +
- * distance to nearest own store (up to 40 pts — further = better).
+ * gap_score (0–100):
+ *   - Competitor density  (0–40): more competitors = stronger demand signal
+ *   - Coverage gap        (0–30): further own store = bigger opportunity
+ *   - POI activity        (0–30): nearby commercial POIs validate foot traffic
  */
 router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -490,25 +492,59 @@ router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFun
          SELECT *,
            ST_ClusterDBSCAN(geometry, eps := 0.009, minpoints := 1) OVER () AS cluster_id
          FROM uncovered
+       ),
+       aggregated AS (
+         SELECT
+           cluster_id,
+           AVG(lat)::float           AS lat,
+           AVG(lng)::float           AS lng,
+           COUNT(*)::int             AS competitor_count,
+           ARRAY_AGG(chain)          AS chains,
+           MIN(nearest_own_store_km)::float AS nearest_own_store_km
+         FROM clustered
+         WHERE cluster_id IS NOT NULL
+         GROUP BY cluster_id
+         HAVING COUNT(*) >= 1
+       ),
+       enriched AS (
+         SELECT
+           a.*,
+           COALESCE((
+             SELECT SUM(CASE p.poi_type
+               WHEN 'marketplace'    THEN 3.0
+               WHEN 'market'         THEN 3.0
+               WHEN 'bank'           THEN 2.0
+               WHEN 'pharmacy'       THEN 1.5
+               WHEN 'bus_station'    THEN 1.2
+               WHEN 'fuel'           THEN 0.8
+               ELSE 1.0 END)
+             FROM poi_cache p
+             WHERE p.geometry IS NOT NULL
+               AND ST_DWithin(
+                 p.geometry::geography,
+                 ST_SetSRID(ST_MakePoint(a.lng, a.lat), 4326)::geography,
+                 800
+               )
+           ), 0)::float AS nearby_poi_score
+         FROM aggregated a
        )
        SELECT
          cluster_id,
-         AVG(lat)::float  AS lat,
-         AVG(lng)::float  AS lng,
-         COUNT(*)::int    AS competitor_count,
-         ARRAY_AGG(chain) AS chains,
-         MIN(nearest_own_store_km)::int AS nearest_own_store_km,
+         lat, lng,
+         competitor_count,
+         chains,
+         nearest_own_store_km::int,
+         nearby_poi_score,
          LEAST(100, GREATEST(0,
-           LEAST(60, COUNT(*)::float * 12.0) +
-           LEAST(40, MIN(nearest_own_store_km)::float * 2.0)
+           LEAST(40, competitor_count::float * 10.0) +
+           LEAST(30, nearest_own_store_km * 2.0) +
+           LEAST(30, nearby_poi_score * 2.0)
          ))::int AS gap_score
-       FROM clustered
-       WHERE cluster_id IS NOT NULL
-       GROUP BY cluster_id
-       HAVING COUNT(*) >= 1
-         AND LEAST(100, GREATEST(0,
-           LEAST(60, COUNT(*)::float * 12.0) +
-           LEAST(40, MIN(nearest_own_store_km)::float * 2.0)
+       FROM enriched
+       WHERE LEAST(100, GREATEST(0,
+           LEAST(40, competitor_count::float * 10.0) +
+           LEAST(30, nearest_own_store_km * 2.0) +
+           LEAST(30, nearby_poi_score * 2.0)
          ))::int >= $1
        ORDER BY gap_score DESC
        LIMIT $2`,
@@ -519,6 +555,7 @@ router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFun
     const gaps = result.rows.map(r => ({
       ...r,
       chains: [...new Set(r.chains as string[])],
+      nearby_poi_score: parseFloat(r.nearby_poi_score),
     }));
 
     res.json({ count: gaps.length, gaps });

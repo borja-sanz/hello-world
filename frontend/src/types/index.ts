@@ -145,6 +145,7 @@ export interface CompetitorGap {
   competitor_count: number;
   chains: string[];
   nearest_own_store_km: number | null;
+  nearby_poi_score: number;
   gap_score: number;
 }
 

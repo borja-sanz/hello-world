@@ -441,34 +441,39 @@ const MapView: React.FC<MapViewProps> = ({
 
     for (const g of competitorGaps) {
       if (!g.lat || !g.lng) continue;
-      const size  = Math.max(10, Math.min(24, 10 + g.competitor_count * 2));
-      const color = g.gap_score >= 70 ? '#7c3aed' : g.gap_score >= 45 ? '#8b5cf6' : '#a78bfa';
+      const score = g.gap_score;
+      const size  = Math.max(14, Math.min(28, 14 + Math.round(score / 10)));
+      const color = score >= 70 ? '#7c3aed' : score >= 45 ? '#8b5cf6' : '#a78bfa';
 
       const icon = L.divIcon({
-        html: `<div style="width:${size}px;height:${size}px;border-radius:3px;
+        html: `<div style="width:${size}px;height:${size}px;border-radius:4px;
                  background:${color};border:2px solid white;
                  box-shadow:0 1px 4px rgba(0,0,0,.6);
                  display:flex;align-items:center;justify-content:center;
-                 font-size:9px;font-weight:700;color:white;
-                 font-family:sans-serif;line-height:1;">${g.competitor_count}</div>`,
+                 font-size:10px;font-weight:700;color:white;
+                 font-family:sans-serif;line-height:1;">${score}</div>`,
         className: '',
         iconSize:   [size, size],
         iconAnchor: [size / 2, size / 2],
       });
 
-      const storeTag = g.nearest_own_store_km !== null
-        ? `${g.nearest_own_store_km} km`
-        : 'Sin cobertura';
-      const chainsStr = g.chains.slice(0, 4).join(', ') + (g.chains.length > 4 ? '…' : '');
+      const storeTag   = g.nearest_own_store_km !== null ? `${g.nearest_own_store_km} km` : 'Sin cobertura';
+      const chainsStr  = g.chains.slice(0, 4).join(', ') + (g.chains.length > 4 ? '…' : '');
+      const poiScore   = g.nearby_poi_score?.toFixed(1) ?? '0';
 
       const popupHtml = `
-        <div class="text-sm" style="min-width:180px">
+        <div class="text-sm" style="min-width:190px">
           <strong style="color:${color}">Brecha de mercado</strong>
+          <div style="margin-top:4px">
+            Score: <strong style="color:${color}">${score}/100</strong>
+          </div>
           <div style="font-size:11px;margin-top:4px">
-            Competidores: <strong>${g.competitor_count}</strong><br/>
-            Cadenas: ${chainsStr}<br/>
-            Tienda propia más cercana: <strong>${storeTag}</strong><br/>
-            Gap score: <strong>${g.gap_score}/100</strong>
+            Competidores: <strong>${g.competitor_count}</strong> (${chainsStr})<br/>
+            Actividad POI cercana: <strong>${poiScore}</strong><br/>
+            Tienda propia: <strong>${storeTag}</strong>
+          </div>
+          <div style="font-size:10px;color:#9ca3af;margin-top:3px">
+            Score = densidad (40) + cobertura (30) + POIs (30)
           </div>
         </div>
       `;
