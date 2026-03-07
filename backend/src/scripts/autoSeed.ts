@@ -13,6 +13,7 @@ import { pool } from '../db';
 import { PoolClient } from 'pg';
 import axios from 'axios';
 import fs from 'fs';
+import { importPoiCacheSeed } from './poiSeed';
 import path from 'path';
 
 const OVERPASS_URL = process.env.OVERPASS_API_URL || 'https://overpass-api.de/api/interpreter';
@@ -607,4 +608,6 @@ export async function autoSeedIfEmpty(): Promise<void> {
   await seedStoresAndCompetitors();     // fetches from OSM with static fallback
   await migrateCalibrationWeights();    // bump socioeconomic weight to match real data quality
   await seedNtlSettlements();           // VIIRS nighttime lights sub-municipio settlement clusters
+  // Restore Google Places POIs from the committed seed snapshot (if table is empty)
+  await importPoiCacheSeed().catch(e => console.warn('[poiSeed] Startup import failed:', e.message));
 }

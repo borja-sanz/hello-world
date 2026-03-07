@@ -24,6 +24,7 @@ import {
   getPoiCounts,
   getRefreshLog,
 } from '../services/googlePoiService';
+import { exportPoiCacheSeed } from '../scripts/poiSeed';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -48,7 +49,11 @@ router.post('/refresh/pois', async (req: Request, res: Response, next: NextFunct
     const apiKey = resolveKey(req);
     // Run async; respond immediately so the HTTP connection doesn't time out
     refreshNearbyPois(apiKey)
-      .then(r => console.log(`[google-pois] Nearby refresh done: ${r.reduce((s, x) => s + x.inserted, 0)} inserted`))
+      .then(async r => {
+        const n = r.reduce((s, x) => s + x.inserted, 0);
+        console.log(`[google-pois] Nearby refresh done: ${n} inserted`);
+        await exportPoiCacheSeed().catch(e => console.warn('[poiSeed] Auto-export failed:', e.message));
+      })
       .catch(e => console.error('[google-pois] Nearby refresh error:', e.message));
     res.json({ message: 'Nearby POI refresh started (runs in background ~2–5 min)' });
   } catch (err) { next(err); }
@@ -59,7 +64,11 @@ router.post('/refresh/mercados', async (req: Request, res: Response, next: NextF
   try {
     const apiKey = resolveKey(req);
     refreshMercadosInformales(apiKey)
-      .then(r => console.log(`[google-pois] Mercados refresh done: ${r.reduce((s, x) => s + x.inserted, 0)} inserted`))
+      .then(async r => {
+        const n = r.reduce((s, x) => s + x.inserted, 0);
+        console.log(`[google-pois] Mercados refresh done: ${n} inserted`);
+        await exportPoiCacheSeed().catch(e => console.warn('[poiSeed] Auto-export failed:', e.message));
+      })
       .catch(e => console.error('[google-pois] Mercados error:', e.message));
     res.json({ message: 'Mercados informales refresh started (~1 min)' });
   } catch (err) { next(err); }
@@ -70,7 +79,11 @@ router.post('/refresh/lds', async (req: Request, res: Response, next: NextFuncti
   try {
     const apiKey = resolveKey(req);
     refreshLdsChurches(apiKey)
-      .then(r => console.log(`[google-pois] LDS refresh done: ${r.reduce((s, x) => s + x.inserted, 0)} inserted`))
+      .then(async r => {
+        const n = r.reduce((s, x) => s + x.inserted, 0);
+        console.log(`[google-pois] LDS refresh done: ${n} inserted`);
+        await exportPoiCacheSeed().catch(e => console.warn('[poiSeed] Auto-export failed:', e.message));
+      })
       .catch(e => console.error('[google-pois] LDS error:', e.message));
     res.json({ message: 'LDS church refresh started (~1 min)' });
   } catch (err) { next(err); }
@@ -101,6 +114,9 @@ router.post('/refresh/all', async (req: Request, res: Response, next: NextFuncti
       console.log('[google-pois] LDS done');
       await refreshNearbyPois(apiKey);
       console.log('[google-pois] Nearby POIs done — full refresh complete');
+      // Snapshot everything to disk so it survives a container restart
+      const saved = await exportPoiCacheSeed().catch(e => { console.warn('[poiSeed] Auto-export failed:', e.message); return 0; });
+      console.log(`[poiSeed] Seed file updated: ${saved} rows`);
     })().catch(e => console.error('[google-pois] Full refresh error:', e.message));
     res.json({ message: 'Full Google POI refresh started (runs in background ~5–15 min, estimated cost $5–13)' });
   } catch (err) { next(err); }

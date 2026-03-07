@@ -8,6 +8,8 @@ import {
   syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
   seedGuatemalaZones,
   refreshNtlSettlements,
+  savePoiSeed,
+  loadPoiSeed,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -154,8 +156,24 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     try {
       setMsg('⏳ Actualización completa iniciada (~15 min, ~$5–13)…');
       await refreshAllGooglePois(googleApiKey.trim());
-      setMsg('✅ Actualización completa en background — recalcula scores cuando termine');
+      setMsg('✅ Actualización completa en background — recalcula scores cuando termine. El archivo seed se guardará automáticamente al finalizar.');
     } catch { setMsg('❌ Error'); }
+  };
+
+  const handleSavePoiSeed = async () => {
+    try {
+      setMsg('⏳ Guardando snapshot de POIs…');
+      const r = await savePoiSeed();
+      setMsg(`✅ ${r.message}`);
+    } catch { setMsg('❌ Error al guardar seed'); }
+  };
+
+  const handleLoadPoiSeed = async () => {
+    try {
+      setMsg('⏳ Cargando POIs desde seed…');
+      const r = await loadPoiSeed();
+      setMsg(`✅ ${r.message}`);
+    } catch { setMsg('❌ Error al cargar seed'); }
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -851,6 +869,34 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     className="w-full py-2 px-3 rounded-lg bg-gray-700 hover:bg-gray-800 text-white text-xs font-medium transition-colors text-left"
                   >
                     Actualización completa (~15 min, ~$5–13)
+                  </button>
+                </div>
+              </div>
+
+              {/* POI persistence */}
+              <div className="border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-2 bg-emerald-50 dark:bg-emerald-900/20">
+                <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                  💾 Persistencia de POIs entre sesiones
+                </p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                  Guarda una copia de los POIs en el repositorio para que no se pierdan al reiniciar.
+                  Se guarda automáticamente al terminar cada sync de Google. Si ya tienes POIs cargados
+                  y quieres guardarlos ahora, haz clic en "Guardar".
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSavePoiSeed}
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors"
+                    title="Exporta poi_cache → backend/data/poi_cache_seed.json. Commitea ese archivo para persistir."
+                  >
+                    💾 Guardar POIs ahora
+                  </button>
+                  <button
+                    onClick={handleLoadPoiSeed}
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium transition-colors"
+                    title="Carga poi_cache_seed.json en poi_cache si la tabla está vacía"
+                  >
+                    📂 Cargar desde seed
                   </button>
                 </div>
               </div>

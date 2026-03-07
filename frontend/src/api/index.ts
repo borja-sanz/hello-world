@@ -284,4 +284,14 @@ export const refreshOsmAll = async () => {
   return data;
 };
 
+export const savePoiSeed = async (): Promise<{ message: string; count: number }> => {
+  const { data } = await api.post('/api/admin/save-poi-seed');
+  return data;
+};
+
+export const loadPoiSeed = async (): Promise<{ message: string; count: number }> => {
+  const { data } = await api.post('/api/admin/load-poi-seed');
+  return data;
+};
+
 export default api;

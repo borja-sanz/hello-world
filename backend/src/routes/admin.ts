@@ -6,6 +6,7 @@ import { fromFile } from 'geotiff';
 import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
 import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../services/googlePlacesService';
+import { exportPoiCacheSeed, importPoiCacheSeed } from '../scripts/poiSeed';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -942,6 +943,40 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
   } catch (err: any) {
     console.error('build-poi-nuclei error:', err.message);
   }
+});
+
+// ─── POI Cache seed persistence ───────────────────────────────────────────────
+
+/**
+ * POST /api/admin/save-poi-seed
+ * Exports current Google Places poi_cache rows to backend/data/poi_cache_seed.json.
+ * Commit that file so the next session auto-restores the data on startup.
+ */
+router.post('/save-poi-seed', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const count = await exportPoiCacheSeed();
+    if (count === 0) {
+      res.json({ message: 'poi_cache has no Google Places rows to export — sync POIs first', count: 0 });
+    } else {
+      res.json({ message: `Exported ${count} POIs to backend/data/poi_cache_seed.json — commit this file to persist across sessions`, count });
+    }
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/admin/load-poi-seed
+ * Manually triggers seed import (normally runs on startup).
+ * Useful when the server is already running and poi_cache is empty.
+ */
+router.post('/load-poi-seed', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const count = await importPoiCacheSeed();
+    if (count === 0) {
+      res.json({ message: 'Nothing imported: either seed file missing or poi_cache already has data', count: 0 });
+    } else {
+      res.json({ message: `Loaded ${count} POIs from seed file into poi_cache`, count });
+    }
+  } catch (err) { next(err); }
 });
 
 export default router;
