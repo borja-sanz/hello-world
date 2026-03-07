@@ -284,6 +284,11 @@ export const refreshOsmAll = async () => {
   return data;
 };
 
+export const refreshPoisOsm = async (force = false): Promise<{ message: string }> => {
+  const { data } = await api.post('/api/admin/refresh-pois-osm', { force });
+  return data;
+};
+
 export const savePoiSeed = async (): Promise<{ message: string; count: number }> => {
   const { data } = await api.post('/api/admin/save-poi-seed');
   return data;

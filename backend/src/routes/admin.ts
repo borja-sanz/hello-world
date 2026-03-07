@@ -7,6 +7,7 @@ import { pool } from '../db';
 import { scoreAllMunicipios, loadCalibrationConfig } from '../services/scoringEngine';
 import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../services/googlePlacesService';
 import { exportPoiCacheSeed, importPoiCacheSeed } from '../scripts/poiSeed';
+import { seedPoiCacheFromOsm } from '../scripts/autoSeed';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -946,6 +947,23 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
 });
 
 // ─── POI Cache seed persistence ───────────────────────────────────────────────
+
+/**
+ * POST /api/admin/refresh-pois-osm
+ * Populates poi_cache from OpenStreetMap (Overpass API) — free, no API key needed.
+ * Falls back to a hand-curated static dataset if Overpass is unreachable.
+ * Body: { force: true } to overwrite even when poi_cache already has rows.
+ */
+router.post('/refresh-pois-osm', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const force = req.body?.force === true;
+    // Run async; respond immediately
+    seedPoiCacheFromOsm(force)
+      .then(n => console.log(`[admin] OSM POI refresh done: ${n} rows`))
+      .catch(e => console.error('[admin] OSM POI refresh error:', e.message));
+    res.json({ message: 'OSM POI refresh started (~30s). Toggle "Zonas" in the map once complete.' });
+  } catch (err) { next(err); }
+});
 
 /**
  * POST /api/admin/save-poi-seed

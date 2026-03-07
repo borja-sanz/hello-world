@@ -10,6 +10,7 @@ import {
   refreshNtlSettlements,
   savePoiSeed,
   loadPoiSeed,
+  refreshPoisOsm,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -158,6 +159,14 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       await refreshAllGooglePois(googleApiKey.trim());
       setMsg('✅ Actualización completa en background — recalcula scores cuando termine. El archivo seed se guardará automáticamente al finalizar.');
     } catch { setMsg('❌ Error'); }
+  };
+
+  const handleRefreshPoisOsm = async (force = false) => {
+    try {
+      setMsg('⏳ Cargando POIs desde OpenStreetMap (gratis, ~30s)…');
+      const r = await refreshPoisOsm(force);
+      setMsg(`✅ ${r.message}`);
+    } catch { setMsg('❌ Error al cargar POIs de OSM'); }
   };
 
   const handleSavePoiSeed = async () => {
@@ -857,6 +866,13 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     title="Inserta las 22 zonas administrativas de Ciudad de Guatemala en ntl_settlements para mejorar el detalle del desglose sub-municipio"
                   >
                     Zonas Ciudad de Guatemala (sub-municipio)
+                  </button>
+                  <button
+                    onClick={() => handleRefreshPoisOsm(false)}
+                    className="w-full py-2 px-3 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors text-left"
+                    title="Carga POIs de OpenStreetMap (bancos, mercados, farmacias…) de forma gratuita. Necesario para que Zonas y Brechas funcionen. Si poi_cache ya tiene datos, usa el botón con force=true."
+                  >
+                    🗺 POIs desde OpenStreetMap (gratis, ~30s) — activa Zonas
                   </button>
                   <button
                     onClick={handleRefreshPois}

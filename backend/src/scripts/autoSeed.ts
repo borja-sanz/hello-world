@@ -599,6 +599,211 @@ const STATIC_NTL_FALLBACK: OsmPlace[] = [
   { osmId: 0, name: 'Nebaj',                lat: 15.4047, lng: -91.1374, population:    67_000, placeType: 'town'    },
 ];
 
+// ── POI cache seed from OpenStreetMap ────────────────────────────────────────
+// Populates poi_cache with free OSM amenity data so that build-poi-nuclei can
+// produce Zonas without needing a Google Places API key.
+// Only runs when poi_cache is completely empty.
+
+const OSM_AMENITY_TYPE_MAP: Record<string, string> = {
+  bank:          'bank',
+  pharmacy:      'pharmacy',
+  hospital:      'hospital',
+  school:        'school',
+  marketplace:   'marketplace',
+  bus_station:   'bus_station',
+  fuel:          'fuel',
+  atm:           'atm',
+  money_transfer:'money_transfer',
+};
+
+// Hand-curated POIs: ≥3 entries per major town, close enough to cluster (within 0.005°)
+const STATIC_POI_FALLBACK: Array<{ name: string; poi_type: string; lat: number; lng: number }> = [
+  // Guatemala City – Zona 1 (central market area)
+  { name: 'Mercado Central', poi_type: 'marketplace', lat: 14.6403, lng: -90.5128 },
+  { name: 'Banco Industrial Zona 1', poi_type: 'bank', lat: 14.6397, lng: -90.5131 },
+  { name: 'Farmacia Galeno Zona 1', poi_type: 'pharmacy', lat: 14.6408, lng: -90.5120 },
+  // Guatemala City – Zona 4
+  { name: 'Mercado de Artesanías', poi_type: 'marketplace', lat: 14.6322, lng: -90.5175 },
+  { name: 'Banco G&T Zona 4', poi_type: 'bank', lat: 14.6318, lng: -90.5170 },
+  { name: 'Farmacia Cruz Verde Zona 4', poi_type: 'pharmacy', lat: 14.6325, lng: -90.5168 },
+  // Guatemala City – Zona 12
+  { name: 'Mercado Colón', poi_type: 'marketplace', lat: 14.5970, lng: -90.5435 },
+  { name: 'Banco Agromercantil Zona 12', poi_type: 'bank', lat: 14.5965, lng: -90.5430 },
+  { name: 'Farmacia Zona 12', poi_type: 'pharmacy', lat: 14.5975, lng: -90.5440 },
+  // Guatemala City – Zona 18
+  { name: 'Mercado El Limón', poi_type: 'marketplace', lat: 14.6380, lng: -90.4695 },
+  { name: 'Banco Rural Zona 18', poi_type: 'bank', lat: 14.6375, lng: -90.4700 },
+  { name: 'Terminal Zona 18', poi_type: 'bus_station', lat: 14.6385, lng: -90.4690 },
+  // Mixco
+  { name: 'Mercado de Mixco', poi_type: 'marketplace', lat: 14.6345, lng: -90.5955 },
+  { name: 'Banco Industrial Mixco', poi_type: 'bank', lat: 14.6340, lng: -90.5950 },
+  { name: 'Farmacia Mixco', poi_type: 'pharmacy', lat: 14.6350, lng: -90.5945 },
+  // Villa Nueva
+  { name: 'Mercado Villa Nueva', poi_type: 'marketplace', lat: 14.5280, lng: -90.5900 },
+  { name: 'Banco Banrural Villa Nueva', poi_type: 'bank', lat: 14.5275, lng: -90.5895 },
+  { name: 'Farmacia Villa Nueva', poi_type: 'pharmacy', lat: 14.5285, lng: -90.5905 },
+  // Quetzaltenango (Xela)
+  { name: 'Mercado La Demo Xela', poi_type: 'marketplace', lat: 14.8430, lng: -91.5178 },
+  { name: 'Banco Industrial Xela', poi_type: 'bank', lat: 14.8425, lng: -91.5182 },
+  { name: 'Farmacia Xela', poi_type: 'pharmacy', lat: 14.8435, lng: -91.5175 },
+  { name: 'Terminal Minerva Xela', poi_type: 'bus_station', lat: 14.8440, lng: -91.5185 },
+  // Huehuetenango
+  { name: 'Mercado de Huehuetenango', poi_type: 'marketplace', lat: 15.3202, lng: -91.4707 },
+  { name: 'Banco Banrural Huehue', poi_type: 'bank', lat: 15.3197, lng: -91.4712 },
+  { name: 'Farmacia Huehuetenango', poi_type: 'pharmacy', lat: 15.3207, lng: -91.4702 },
+  // Cobán
+  { name: 'Mercado de Cobán', poi_type: 'marketplace', lat: 15.4692, lng: -90.3793 },
+  { name: 'Banco G&T Cobán', poi_type: 'bank', lat: 15.4687, lng: -90.3797 },
+  { name: 'Farmacia Cobán', poi_type: 'pharmacy', lat: 15.4697, lng: -90.3788 },
+  // Escuintla
+  { name: 'Mercado de Escuintla', poi_type: 'marketplace', lat: 14.3008, lng: -90.7874 },
+  { name: 'Banco Industrial Escuintla', poi_type: 'bank', lat: 14.3003, lng: -90.7878 },
+  { name: 'Farmacia Escuintla', poi_type: 'pharmacy', lat: 14.3013, lng: -90.7869 },
+  // Chimaltenango
+  { name: 'Mercado de Chimaltenango', poi_type: 'marketplace', lat: 14.6615, lng: -90.8213 },
+  { name: 'Banco Chimaltenango', poi_type: 'bank', lat: 14.6610, lng: -90.8217 },
+  { name: 'Farmacia Chimaltenango', poi_type: 'pharmacy', lat: 14.6620, lng: -90.8208 },
+  // Antigua Guatemala
+  { name: 'Mercado de Antigua', poi_type: 'marketplace', lat: 14.5578, lng: -90.7344 },
+  { name: 'Banco Antigua', poi_type: 'bank', lat: 14.5573, lng: -90.7348 },
+  { name: 'Farmacia Antigua', poi_type: 'pharmacy', lat: 14.5583, lng: -90.7339 },
+  // Jalapa
+  { name: 'Mercado de Jalapa', poi_type: 'marketplace', lat: 14.6337, lng: -89.9872 },
+  { name: 'Banco Rural Jalapa', poi_type: 'bank', lat: 14.6332, lng: -89.9876 },
+  { name: 'Farmacia Jalapa', poi_type: 'pharmacy', lat: 14.6342, lng: -89.9867 },
+  // Chiquimula
+  { name: 'Mercado de Chiquimula', poi_type: 'marketplace', lat: 14.7987, lng: -89.5463 },
+  { name: 'Banco Chiquimula', poi_type: 'bank', lat: 14.7982, lng: -89.5467 },
+  { name: 'Farmacia Chiquimula', poi_type: 'pharmacy', lat: 14.7992, lng: -89.5458 },
+  // Zacapa
+  { name: 'Mercado de Zacapa', poi_type: 'marketplace', lat: 14.9717, lng: -89.5273 },
+  { name: 'Banco Zacapa', poi_type: 'bank', lat: 14.9712, lng: -89.5277 },
+  { name: 'Farmacia Zacapa', poi_type: 'pharmacy', lat: 14.9722, lng: -89.5268 },
+  // Jutiapa
+  { name: 'Mercado de Jutiapa', poi_type: 'marketplace', lat: 14.2892, lng: -89.8988 },
+  { name: 'Banco Jutiapa', poi_type: 'bank', lat: 14.2887, lng: -89.8992 },
+  { name: 'Farmacia Jutiapa', poi_type: 'pharmacy', lat: 14.2897, lng: -89.8983 },
+  // Mazatenango
+  { name: 'Mercado de Mazatenango', poi_type: 'marketplace', lat: 14.5361, lng: -91.5033 },
+  { name: 'Banco Mazatenango', poi_type: 'bank', lat: 14.5356, lng: -91.5037 },
+  { name: 'Farmacia Mazatenango', poi_type: 'pharmacy', lat: 14.5366, lng: -91.5028 },
+  // Retalhuleu
+  { name: 'Mercado de Reu', poi_type: 'marketplace', lat: 14.5341, lng: -91.6771 },
+  { name: 'Banco Reu', poi_type: 'bank', lat: 14.5336, lng: -91.6775 },
+  { name: 'Farmacia Reu', poi_type: 'pharmacy', lat: 14.5346, lng: -91.6766 },
+  // San Marcos
+  { name: 'Mercado de San Marcos', poi_type: 'marketplace', lat: 14.9598, lng: -91.7962 },
+  { name: 'Banco San Marcos', poi_type: 'bank', lat: 14.9593, lng: -91.7966 },
+  { name: 'Farmacia San Marcos', poi_type: 'pharmacy', lat: 14.9603, lng: -91.7957 },
+  // Coatepeque
+  { name: 'Mercado de Coatepeque', poi_type: 'marketplace', lat: 14.7027, lng: -91.8573 },
+  { name: 'Banco Coatepeque', poi_type: 'bank', lat: 14.7022, lng: -91.8577 },
+  { name: 'Farmacia Coatepeque', poi_type: 'pharmacy', lat: 14.7032, lng: -91.8568 },
+  // Totonicapán
+  { name: 'Mercado de Toto', poi_type: 'marketplace', lat: 14.9125, lng: -91.3603 },
+  { name: 'Banco Totonicapán', poi_type: 'bank', lat: 14.9120, lng: -91.3607 },
+  { name: 'Farmacia Totonicapán', poi_type: 'pharmacy', lat: 14.9130, lng: -91.3598 },
+  // Sololá
+  { name: 'Mercado de Sololá', poi_type: 'marketplace', lat: 14.7757, lng: -91.1843 },
+  { name: 'Banco Sololá', poi_type: 'bank', lat: 14.7752, lng: -91.1847 },
+  { name: 'Farmacia Sololá', poi_type: 'pharmacy', lat: 14.7762, lng: -91.1838 },
+  // Santa Cruz del Quiché
+  { name: 'Mercado de Quiché', poi_type: 'marketplace', lat: 15.0322, lng: -91.1477 },
+  { name: 'Banco Quiché', poi_type: 'bank', lat: 15.0317, lng: -91.1481 },
+  { name: 'Farmacia Quiché', poi_type: 'pharmacy', lat: 15.0327, lng: -91.1472 },
+  // Chichicastenango
+  { name: 'Mercado de Chichicast.', poi_type: 'marketplace', lat: 14.9439, lng: -91.1135 },
+  { name: 'Banco Chichicastenango', poi_type: 'bank', lat: 14.9434, lng: -91.1139 },
+  { name: 'Farmacia Chichicastenango', poi_type: 'pharmacy', lat: 14.9444, lng: -91.1130 },
+  // Puerto Barrios
+  { name: 'Mercado Puerto Barrios', poi_type: 'marketplace', lat: 15.7173, lng: -88.5977 },
+  { name: 'Banco Puerto Barrios', poi_type: 'bank', lat: 15.7168, lng: -88.5981 },
+  { name: 'Farmacia Puerto Barrios', poi_type: 'pharmacy', lat: 15.7178, lng: -88.5972 },
+  // Flores (Petén)
+  { name: 'Mercado Flores', poi_type: 'marketplace', lat: 16.9289, lng: -89.8824 },
+  { name: 'Banco Flores', poi_type: 'bank', lat: 16.9284, lng: -89.8828 },
+  { name: 'Farmacia Flores', poi_type: 'pharmacy', lat: 16.9294, lng: -89.8819 },
+  // Salamá
+  { name: 'Mercado de Salamá', poi_type: 'marketplace', lat: 15.1038, lng: -90.3156 },
+  { name: 'Banco Salamá', poi_type: 'bank', lat: 15.1033, lng: -90.3160 },
+  { name: 'Farmacia Salamá', poi_type: 'pharmacy', lat: 15.1043, lng: -90.3151 },
+  // Palín
+  { name: 'Mercado de Palín', poi_type: 'marketplace', lat: 14.4055, lng: -90.6968 },
+  { name: 'Banco Palín', poi_type: 'bank', lat: 14.4050, lng: -90.6972 },
+  { name: 'Farmacia Palín', poi_type: 'pharmacy', lat: 14.4060, lng: -90.6963 },
+];
+
+async function fetchOsmPois(): Promise<Array<{ name: string; poi_type: string; lat: number; lng: number }>> {
+  const query = `
+[out:json][timeout:60];
+area["name"="Guatemala"]["boundary"="administrative"]["admin_level"="2"]->.gt;
+(
+  node["amenity"~"^(bank|pharmacy|hospital|marketplace|bus_station|atm|money_transfer)$"](area.gt);
+  node["shop"~"^(supermarket|hardware)$"](area.gt);
+);
+out body;
+  `.trim();
+
+  const response = await axios.post(
+    OVERPASS_URL,
+    `data=${encodeURIComponent(query)}`,
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 65_000 }
+  );
+
+  const results: Array<{ name: string; poi_type: string; lat: number; lng: number }> = [];
+  for (const el of (response.data.elements || []) as OverpassElement[]) {
+    if (!el.lat || !el.lon || !el.tags?.name) continue;
+    const amenity = el.tags.amenity ?? '';
+    const shop    = el.tags.shop ?? '';
+    const poiType = OSM_AMENITY_TYPE_MAP[amenity] ?? (shop === 'supermarket' ? 'supermarket' : shop === 'hardware' ? 'hardware' : null);
+    if (!poiType) continue;
+    results.push({ name: el.tags.name, poi_type: poiType, lat: el.lat, lng: el.lon });
+  }
+  return results;
+}
+
+export async function seedPoiCacheFromOsm(force = false): Promise<number> {
+  const { rows } = await pool.query(`SELECT COUNT(*)::int AS cnt FROM poi_cache`);
+  if (!force && rows[0].cnt > 0) {
+    console.log(`[autoSeed] poi_cache already has ${rows[0].cnt} rows — skipping OSM POI seed`);
+    return 0;
+  }
+
+  let pois: Array<{ name: string; poi_type: string; lat: number; lng: number }> = [];
+  let source = 'osm';
+  try {
+    console.log('[autoSeed] Fetching POIs from OpenStreetMap...');
+    pois = await fetchOsmPois();
+    console.log(`[autoSeed] OSM POIs: ${pois.length} found`);
+  } catch (err: any) {
+    console.warn(`[autoSeed] Overpass unavailable (${err.message}) — using static POI fallback`);
+    pois   = STATIC_POI_FALLBACK;
+    source = 'osm_static';
+  }
+
+  if (pois.length === 0) return 0;
+
+  // Cap at 2000 to avoid very long insert times
+  const batch = pois.slice(0, 2000);
+  let inserted = 0;
+  for (const p of batch) {
+    try {
+      await pool.query(
+        `INSERT INTO poi_cache (name, poi_type, lat, lng,
+           geometry, source, fetched_at)
+         VALUES ($1, $2, $3, $4,
+           ST_SetSRID(ST_MakePoint($4, $3), 4326),
+           $5, NOW())
+         ON CONFLICT DO NOTHING`,
+        [p.name, p.poi_type, p.lat, p.lng, source]
+      );
+      inserted++;
+    } catch { /* skip individual failures */ }
+  }
+  console.log(`[autoSeed] Inserted ${inserted} OSM POIs into poi_cache (source: ${source})`);
+  return inserted;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function autoSeedIfEmpty(): Promise<void> {
@@ -610,4 +815,6 @@ export async function autoSeedIfEmpty(): Promise<void> {
   await seedNtlSettlements();           // VIIRS nighttime lights sub-municipio settlement clusters
   // Restore Google Places POIs from the committed seed snapshot (if table is empty)
   await importPoiCacheSeed().catch(e => console.warn('[poiSeed] Startup import failed:', e.message));
+  // If poi_cache is still empty, populate with free OSM data so Zonas/Brechas work out-of-the-box
+  await seedPoiCacheFromOsm().catch(e => console.warn('[autoSeed] OSM POI seed failed:', e.message));
 }
