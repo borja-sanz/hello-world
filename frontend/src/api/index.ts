@@ -272,7 +272,7 @@ export const fetchPoiNuclei = async (params?: {
 export const fetchCompetitorGaps = async (params?: {
   limit?: number; min_gap_score?: number;
 }): Promise<{ count: number; gaps: CompetitorGap[] }> => {
-  const { data } = await api.get('/api/scoring/competitor-gaps', { params });
+  const { data } = await api.get('/api/scoring/competitor-gaps', { params, timeout: 120_000 });
   return data;
 };
 

@@ -161,11 +161,13 @@ const App: React.FC = () => {
 
     // Lazy-load competitor gaps the first time the layer is turned on
     if (key === 'competitorGaps' && !gapsLoadedRef.current) {
-      gapsLoadedRef.current = true;
       try {
         const result = await fetchCompetitorGaps({ limit: 200 });
         setCompetitorGaps(result.gaps);
-      } catch { /* silent */ }
+        gapsLoadedRef.current = true;
+      } catch (e: any) {
+        setError('Error al cargar Brechas: ' + (e?.message ?? 'timeout'));
+      }
     }
 
     // Lazy-load poi nuclei the first time the layer is turned on

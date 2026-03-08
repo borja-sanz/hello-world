@@ -479,7 +479,8 @@ router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFun
                 c.geometry::geography
               )) / 1000)
               FROM stores s
-              WHERE s.geometry IS NOT NULL AND s.status = 'open'),
+              WHERE s.geometry IS NOT NULL AND s.status = 'open'
+                AND ST_DWithin(s.geometry::geography, c.geometry::geography, 200000)),
              50
            )::float AS nearest_own_store_km
          FROM competitors c
