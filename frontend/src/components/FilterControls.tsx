@@ -20,6 +20,8 @@ interface Props {
   nucleiNotBuilt?:    boolean;
   onBuildNuclei?:     () => void;
   buildingNuclei?:    boolean;
+  onBuildGaps?:       () => void;
+  buildingGaps?:      boolean;
   gapFilter?:         { high: boolean; medium: boolean; low: boolean };
   onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
   gapTierCounts?:     { high: number; medium: number; low: number };
@@ -30,6 +32,7 @@ const FilterControls: React.FC<Props> = ({
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
   nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
+  onBuildGaps, buildingGaps = false,
   gapFilter, onGapFilterChange, gapTierCounts,
 }) => {
   const [chainsOpen,  setChainsOpen]  = useState(false);
@@ -249,31 +252,35 @@ const FilterControls: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Build POI nuclei — explanation + callout when data missing */}
-      {onBuildNuclei && (
-        <div className="space-y-1.5">
+      {/* Build buttons — Zonas and Brechas independently */}
+      <div className="space-y-1.5">
+        {onBuildNuclei && (
           <button
             onClick={onBuildNuclei}
-            disabled={buildingNuclei}
+            disabled={buildingNuclei || buildingGaps}
             className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
                        text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {buildingNuclei ? '⏳ Construyendo zonas… (hasta 60s)' : '🏗 Construir zonas + brechas'}
+            {buildingNuclei ? '⏳ Construyendo zonas…' : `🏗 Construir Zonas${nucleiCount > 0 ? ` (${nucleiCount})` : ''}`}
           </button>
-          {nucleiNotBuilt && !buildingNuclei && (
-            <div className="text-[10px] bg-orange-50 dark:bg-orange-900/20 border border-orange-200
-                            dark:border-orange-800 rounded-md px-2 py-1.5 text-orange-700 dark:text-orange-300">
-              <strong>Zonas</strong> y <strong>Brechas</strong> requieren datos previos.<br />
-              Haz clic en el botón de arriba para construirlos (tarda ~30-60s).
-            </div>
-          )}
-          {!nucleiNotBuilt && nucleiCount === 0 && !buildingNuclei && (
-            <p className="text-[10px] text-gray-400 text-center">
-              Activa "Zonas" o "Brechas" para cargar · o construye primero
-            </p>
-          )}
-        </div>
-      )}
+        )}
+        {onBuildGaps && (
+          <button
+            onClick={onBuildGaps}
+            disabled={buildingGaps || buildingNuclei}
+            className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
+                       text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {buildingGaps ? '⏳ Construyendo brechas…' : `🏗 Construir Brechas${gapsCount > 0 ? ` (${gapsCount})` : ''}`}
+          </button>
+        )}
+        {nucleiNotBuilt && !buildingNuclei && (
+          <div className="text-[10px] bg-orange-50 dark:bg-orange-900/20 border border-orange-200
+                          dark:border-orange-800 rounded-md px-2 py-1.5 text-orange-700 dark:text-orange-300">
+            <strong>Zonas</strong> requiere datos previos. Haz clic en "Construir Zonas" (~30-60s).
+          </div>
+        )}
+      </div>
 
       {/* Recalculate button */}
       <button

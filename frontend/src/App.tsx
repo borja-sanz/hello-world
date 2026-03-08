@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [poiNuclei,         setPoiNuclei]         = useState<PoiNucleus[]>([]);
   const [competitorGaps,    setCompetitorGaps]    = useState<CompetitorGap[]>([]);
   const [buildingNuclei,    setBuildingNuclei]    = useState(false);
+  const [buildingGaps,      setBuildingGaps]      = useState(false);
   const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
   const [selectedOpp,       setSelectedOpp]       = useState<OpportunityScore | null>(null);
   const [gapFilter,         setGapFilter]         = useState({ high: true, medium: true, low: true });
@@ -197,45 +198,52 @@ const App: React.FC = () => {
     );
   }, []);
 
-  // ── Build POI nuclei (admin action) ──────────────────────────────────────
+  // ── Build Zonas (poi_nuclei) ──────────────────────────────────────────────
   const handleBuildNuclei = useCallback(async () => {
     setBuildingNuclei(true);
     setNucleiNotBuilt(false);
     try {
-      // Run sequentially to avoid deadlocks from concurrent table locks
       await buildPoiNuclei();
-      await buildCompetitorGaps();
-
-      // Poll every 10s for up to 90s until both tables are populated
       const poll = async (attempts: number) => {
         try {
-          const [nucleiResult, gapsResult] = await Promise.all([
-            fetchPoiNuclei({ limit: 200 }),
-            fetchCompetitorGaps({ limit: 200 }),
-          ]);
-          if (nucleiResult.nuclei.length > 0) {
-            setPoiNuclei(nucleiResult.nuclei);
+          const result = await fetchPoiNuclei({ limit: 200 });
+          if (result.nuclei.length > 0) {
+            setPoiNuclei(result.nuclei);
             setNucleiNotBuilt(false);
-          }
-          if (gapsResult.gaps.length > 0) {
-            setCompetitorGaps(gapsResult.gaps);
-            gapsLoadedRef.current = true;
-          }
-          if (nucleiResult.nuclei.length > 0 && gapsResult.gaps.length > 0) {
             setBuildingNuclei(false);
             return;
           }
         } catch { /* keep polling */ }
-        if (attempts > 0) {
-          setTimeout(() => poll(attempts - 1), 10000);
-        } else {
-          setBuildingNuclei(false);
-          setNucleiNotBuilt(true);
-        }
+        if (attempts > 0) setTimeout(() => poll(attempts - 1), 10000);
+        else { setBuildingNuclei(false); setNucleiNotBuilt(true); }
       };
-      setTimeout(() => poll(8), 10000); // up to 8 × 10s = 90s
+      setTimeout(() => poll(8), 10000);
     } catch {
       setBuildingNuclei(false);
+    }
+  }, []);
+
+  // ── Build Brechas (competitor_gaps) ───────────────────────────────────────
+  const handleBuildGaps = useCallback(async () => {
+    setBuildingGaps(true);
+    try {
+      await buildCompetitorGaps();
+      const poll = async (attempts: number) => {
+        try {
+          const result = await fetchCompetitorGaps({ limit: 200 });
+          if (result.gaps.length > 0) {
+            setCompetitorGaps(result.gaps);
+            gapsLoadedRef.current = true;
+            setBuildingGaps(false);
+            return;
+          }
+        } catch { /* keep polling */ }
+        if (attempts > 0) setTimeout(() => poll(attempts - 1), 10000);
+        else setBuildingGaps(false);
+      };
+      setTimeout(() => poll(8), 10000);
+    } catch {
+      setBuildingGaps(false);
     }
   }, []);
 
@@ -414,6 +422,8 @@ const App: React.FC = () => {
           nucleiNotBuilt={nucleiNotBuilt}
           onBuildNuclei={handleBuildNuclei}
           buildingNuclei={buildingNuclei}
+          onBuildGaps={handleBuildGaps}
+          buildingGaps={buildingGaps}
           gapFilter={gapFilter}
           onGapFilterChange={setGapFilter}
           gapTierCounts={gapTierCounts}
