@@ -584,9 +584,12 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
         (SELECT COUNT(*) FROM poi_cache WHERE poi_type = 'marketplace')                AS mercado_count,
         (SELECT MAX(calculated_at) FROM opportunity_scores)                            AS last_scored_at,
         (SELECT MAX(fetched_at) FROM poi_cache WHERE source = 'google_places')         AS last_google_poi_refresh,
-        (SELECT COUNT(DISTINCT m.id) FROM municipios m
-           JOIN stores s ON ST_Within(
-             ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326), m.geometry))              AS covered_municipios
+        (SELECT COUNT(DISTINCT (
+           SELECT id FROM municipios m
+           WHERE m.centroid IS NOT NULL
+           ORDER BY m.centroid <-> ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)
+           LIMIT 1
+         )) FROM stores s WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL)             AS covered_municipios
     `);
     res.json(result.rows[0]);
   } catch (err) {
