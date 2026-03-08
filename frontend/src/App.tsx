@@ -8,6 +8,7 @@ import {
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
   fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei, buildCompetitorGaps,
+  fetchAdminStats,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
@@ -44,6 +45,8 @@ const App: React.FC = () => {
   const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
   const [selectedOpp,       setSelectedOpp]       = useState<OpportunityScore | null>(null);
   const [gapFilter,         setGapFilter]         = useState({ high: true, medium: true, low: true });
+  const [coveredMunicipios, setCoveredMunicipios] = useState<number>(0);
+  const [totalMunicipios,   setTotalMunicipios]   = useState<number>(0);
   const gapsLoadedRef = React.useRef(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -73,11 +76,16 @@ const App: React.FC = () => {
       fetchCompetitors().catch(() => []),
       fetchOpportunities({ limit: 50 }).catch(() => ({ opportunities: [], cached: false })),
       fetchCompetitorChains().catch(() => []),
-    ]).then(([s, c, o, ch]) => {
+      fetchAdminStats().catch(() => null),
+    ]).then(([s, c, o, ch, stats]) => {
       setStores(s);
       setCompetitors(c);
       setOpportunities(addCentroidsFromOpps(o.opportunities));
       setChains(ch);
+      if (stats) {
+        setCoveredMunicipios(Number(stats.covered_municipios) || 0);
+        setTotalMunicipios(Number(stats.municipio_count) || 0);
+      }
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
 
@@ -427,6 +435,8 @@ const App: React.FC = () => {
           gapFilter={gapFilter}
           onGapFilterChange={setGapFilter}
           gapTierCounts={gapTierCounts}
+          coveredMunicipios={coveredMunicipios}
+          totalMunicipios={totalMunicipios}
         />
       </main>
 

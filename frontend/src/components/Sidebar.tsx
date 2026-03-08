@@ -41,6 +41,8 @@ interface Props {
   gapFilter?:         { high: boolean; medium: boolean; low: boolean };
   onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
   gapTierCounts?:     { high: number; medium: number; low: number };
+  coveredMunicipios?: number;
+  totalMunicipios?:   number;
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -52,6 +54,7 @@ const Sidebar: React.FC<Props> = ({
   onBuildNuclei, buildingNuclei = false,
   onBuildGaps, buildingGaps = false,
   gapFilter, onGapFilterChange, gapTierCounts,
+  coveredMunicipios = 0, totalMunicipios = 0,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -90,6 +93,19 @@ const Sidebar: React.FC<Props> = ({
           <div>
             <div className="text-sm font-bold text-gray-800 dark:text-gray-100">Oportunidades</div>
             <div className="text-xs text-gray-400">{filtered.length} municipios</div>
+            {totalMunicipios > 0 && (
+              <div className="mt-0.5">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Penetración: {coveredMunicipios} / {totalMunicipios} ({Math.round(coveredMunicipios / totalMunicipios * 100)}%)
+                </div>
+                <div className="mt-0.5 h-1 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className="h-1 rounded-full bg-green-500"
+                    style={{ width: `${Math.min(100, Math.round(coveredMunicipios / totalMunicipios * 100))}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <button
