@@ -201,18 +201,20 @@ const App: React.FC = () => {
     setNucleiNotBuilt(false);
     try {
       await buildPoiNuclei();
-      // Poll every 10s for up to 90s until results appear
+
+      // Fetch gaps immediately — doesn't depend on nuclei, runs in parallel
+      gapsLoadedRef.current = false;
+      fetchCompetitorGaps({ limit: 200 })
+        .then(r => { setCompetitorGaps(r.gaps); gapsLoadedRef.current = true; })
+        .catch(() => { /* silent */ });
+
+      // Poll every 10s for up to 90s until nuclei appear
       const poll = async (attempts: number) => {
         try {
           const result = await fetchPoiNuclei({ limit: 200 });
           if (result.nuclei.length > 0) {
             setPoiNuclei(result.nuclei);
             setNucleiNotBuilt(false);
-            // Also refresh gaps
-            gapsLoadedRef.current = false;
-            const gaps = await fetchCompetitorGaps({ limit: 200 });
-            setCompetitorGaps(gaps.gaps);
-            gapsLoadedRef.current = true;
             setBuildingNuclei(false);
             return;
           }
