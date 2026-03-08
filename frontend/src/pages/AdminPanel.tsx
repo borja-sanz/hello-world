@@ -5,12 +5,8 @@ import {
   fetchAdminStats, fetchPoiStatus, fetchPoiProgress,
   refreshGooglePois, refreshMercados, refreshDriveTimes, refreshAllGooglePois,
   fetchStoreSummary, clearAllStores, clearAllCompetitors, importStoresCsv, importCompetitorsCsv,
-  syncAllGooglePlacesCompetitors, syncGooglePlacesChain, reclaimOwnStores, fixStoreFormats,
-  seedGuatemalaZones,
-  refreshNtlSettlements,
   savePoiSeed,
   loadPoiSeed,
-  refreshPoisOsm,
   refreshDepartmentPois,
 } from '../api';
 import type { CalibrationConfig } from '../types';
@@ -29,25 +25,6 @@ interface ImportResult {
   error?: string;
 }
 
-interface ChainSyncResult {
-  chain: string;
-  found: number;
-  inserted: number;
-  skipped: number;
-  error?: string;
-  status: 'idle' | 'running' | 'done' | 'error';
-}
-
-const GOOGLE_CHAINS = [
-  'Super del Barrio',
-  'La Bodegona',
-  'La Torre',
-  'Maxi Bodega',
-  'Suma Express',
-  'Econosuper',
-  'Super Más',
-  'Unisuper',
-];
 
 const FORMAT_COLORS: Record<string, string> = {
   'Despensa Familiar': '#16a34a',
@@ -57,7 +34,7 @@ const FORMAT_COLORS: Record<string, string> = {
   'Other':             '#6b7280',
 };
 
-const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
+const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged }) => {
   const [config,        setConfig]        = useState<CalibrationConfig | null>(null);
   const [stats,         setStats]         = useState<any>(null);
   const [storeSummary,  setStoreSummary]  = useState<StoreSummary | null>(null);
@@ -101,12 +78,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
     if (progressPollRef.current) clearInterval(progressPollRef.current);
   }, []);
 
-  // Google Places competitor sync
-  const [googleApiKey,    setGoogleApiKey]    = useState('');
-  const [syncingGoogle,   setSyncingGoogle]   = useState(false);
-  const [chainResults,    setChainResults]    = useState<ChainSyncResult[]>(
-    GOOGLE_CHAINS.map(chain => ({ chain, found: 0, inserted: 0, skipped: 0, status: 'idle' }))
-  );
+  const [googleApiKey, setGoogleApiKey] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -155,7 +127,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   };
 
   const handleRefreshDepartment = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key de Google en la pestaña Sistema'); return; }
     try {
       setMsg(`⏳ Sincronizando POIs de ${selectedDept} (~20–60 s)…`);
       await refreshDepartmentPois(selectedDept, googleApiKey.trim());
@@ -165,7 +137,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   };
 
   const handleRefreshPois = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key de Google en la pestaña Sistema'); return; }
     try {
       setMsg('⏳ Actualizando POIs comerciales (~5 min, ~$4–12)…');
       await refreshGooglePois(googleApiKey.trim());
@@ -175,7 +147,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   };
 
   const handleRefreshMercados = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key de Google en la pestaña Sistema'); return; }
     try {
       setMsg('⏳ Buscando mercados informales (~1 min, ~$0.37)…');
       await refreshMercados(googleApiKey.trim());
@@ -185,7 +157,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   };
 
   const handleRefreshDriveTimes = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key de Google en la pestaña Sistema'); return; }
     try {
       setMsg('⏳ Calculando tiempos de viaje a capital (~30 s, ~$0.34)…');
       await refreshDriveTimes(googleApiKey.trim());
@@ -195,21 +167,13 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   };
 
   const handleRefreshAll = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key de Google en la pestaña Sistema'); return; }
     if (!confirm('Esto actualizará todos los datos de POIs: tiempos de viaje, mercados, iglesias y POIs comerciales.\nCosto estimado: $5–13. ¿Continuar?')) return;
     try {
       setMsg('');
       await refreshAllGooglePois(googleApiKey.trim());
       startProgressPolling();
     } catch { setMsg('❌ Error'); }
-  };
-
-  const handleRefreshPoisOsm = async (force = false) => {
-    try {
-      setMsg('');
-      await refreshPoisOsm(force);
-      startProgressPolling();
-    } catch { setMsg('❌ Error al cargar POIs de OSM'); }
   };
 
   const handleSavePoiSeed = async () => {
@@ -289,84 +253,6 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       setImportResult(null);
       await load();
     } catch { setMsg('❌ Error al eliminar tiendas'); }
-  };
-
-  const handleSeedGuatemalaZones = async () => {
-    try {
-      setMsg('⏳ Sembrando zonas de Ciudad de Guatemala…');
-      const res = await seedGuatemalaZones();
-      setMsg(`✅ ${res.message}`);
-    } catch (e: any) {
-      setMsg(`❌ ${e.response?.data?.error ?? 'Error al sembrar zonas'}`);
-    }
-  };
-
-  const handleRefreshNtlSettlements = async () => {
-    try {
-      setMsg('⏳ Actualizando asentamientos nacionales desde OpenStreetMap…');
-      const res = await refreshNtlSettlements();
-      setMsg(`✅ ${res.message}`);
-    } catch (e: any) {
-      setMsg(`❌ ${e.response?.data?.error ?? 'Error al actualizar asentamientos'}`);
-    }
-  };
-
-  const handleFixStoreFormats = async () => {
-    try {
-      const res = await fixStoreFormats();
-      setMsg(`✅ ${res.message}`);
-      await load();
-      onDataChanged?.();
-    } catch (e: any) {
-      setMsg(`❌ ${e.response?.data?.error ?? 'Error al corregir formatos'}`);
-    }
-  };
-
-  const handleReclaimOwnStores = async () => {
-    if (!confirm('Esto buscará en la tabla de competidores tiendas llamadas "Maxi Despensa", "Maxi Bodega" o "Despensa Familiar" y las moverá a tus tiendas propias. ¿Continuar?')) return;
-    try {
-      const res = await reclaimOwnStores();
-      setMsg(`✅ ${res.message}`);
-      await load();
-      onDataChanged?.();
-    } catch (e: any) {
-      setMsg(`❌ ${e.response?.data?.error ?? 'Error al reclamar tiendas'}`);
-    }
-  };
-
-  const handleGoogleSyncChain = async (chain: string) => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API key de Google'); return; }
-    setChainResults(prev => prev.map(r => r.chain === chain ? { ...r, status: 'running' } : r));
-    try {
-      const result = await syncGooglePlacesChain(googleApiKey.trim(), chain);
-      setChainResults(prev => prev.map(r =>
-        r.chain === chain
-          ? { ...r, ...result, status: result.error ? 'error' : 'done' }
-          : r
-      ));
-    } catch (e: any) {
-      setChainResults(prev => prev.map(r =>
-        r.chain === chain ? { ...r, status: 'error', error: e.response?.data?.error ?? e.message } : r
-      ));
-    }
-  };
-
-  const handleGoogleSyncAll = async () => {
-    if (!googleApiKey.trim()) { setMsg('Ingresa tu API key de Google'); return; }
-    if (!confirm('Esto buscará todas las cadenas competidoras en Google Maps (~$0.40 en créditos de API). ¿Continuar?')) return;
-    setSyncingGoogle(true);
-    setMsg('');
-    setChainResults(prev => prev.map(r => ({ ...r, status: 'running' })));
-    try {
-      await syncAllGooglePlacesCompetitors(googleApiKey.trim());
-      setMsg('Sincronización iniciada — los resultados aparecen en unos 30s');
-      // Poll chain-by-chain for feedback using individual sync calls
-    } catch (e: any) {
-      setMsg(`❌ ${e.response?.data?.error ?? 'Error'}`);
-      setChainResults(prev => prev.map(r => ({ ...r, status: r.status === 'running' ? 'error' : r.status })));
-    } finally {
-      setSyncingGoogle(false);
-    }
   };
 
   if (!config) {
@@ -708,110 +594,6 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                 </button>
               </div>
 
-              {/* Reclaim own stores */}
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-1">
-                  Corregir tiendas propias mal clasificadas
-                </p>
-                <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
-                  Mueve a "Mis Tiendas" cualquier competidor cuyo nombre incluya
-                  <strong> Maxi Despensa</strong>, <strong>Maxi Bodega</strong> o <strong>Despensa Familiar</strong>.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleReclaimOwnStores}
-                    className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
-                  >
-                    Reclamar tiendas propias
-                  </button>
-                  <button
-                    onClick={handleFixStoreFormats}
-                    className="flex-1 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium transition-colors"
-                    title="Corrige el campo 'format' de tiendas cuyo nombre incluya Despensa Familiar / Maxi Despensa / Maxi Bodega"
-                  >
-                    Corregir formatos
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Sincronizar competidores desde Google Maps
-                </p>
-                <p className="text-xs text-gray-500 mb-3">
-                  Usa la API de Google Places para encontrar tiendas de cadenas competidoras en toda Guatemala.
-                  Cobertura mucho mejor que OSM (~95% vs ~10–20%).
-                  Costo estimado: ~$0.40 por sincronización completa.
-                </p>
-
-                {/* API Key input */}
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                  API Key de Google Cloud (Places API)
-                </label>
-                <input
-                  type="password"
-                  placeholder="AIza..."
-                  value={googleApiKey}
-                  onChange={e => setGoogleApiKey(e.target.value)}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                             bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-mono mb-3"
-                />
-                <p className="text-xs text-gray-400 mb-3">
-                  Necesitas una clave con la API de "Places" habilitada en Google Cloud Console.
-                  La clave no se almacena — sólo se usa para esta solicitud.
-                </p>
-
-                {/* Sync all button */}
-                <button
-                  onClick={handleGoogleSyncAll}
-                  disabled={syncingGoogle || !googleApiKey.trim()}
-                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
-                             transition-colors disabled:opacity-50 mb-4"
-                >
-                  {syncingGoogle ? '⏳ Sincronizando…' : 'Sincronizar todas las cadenas'}
-                </button>
-
-                {/* Per-chain table */}
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                  O sincroniza cadena por cadena:
-                </p>
-                <div className="space-y-1.5">
-                  {chainResults.map(r => (
-                    <div key={r.chain}
-                         className="flex items-center justify-between gap-2 rounded-lg px-3 py-2
-                                    bg-gray-50 dark:bg-gray-700/50">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
-                          {r.chain}
-                        </div>
-                        {r.status === 'done' && (
-                          <div className="text-xs text-green-600 dark:text-green-400">
-                            {r.found} encontradas · {r.inserted} nuevas · {r.skipped} ya existían
-                          </div>
-                        )}
-                        {r.status === 'error' && (
-                          <div className="text-xs text-red-500 truncate">{r.error}</div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {r.status === 'running' && (
-                          <span className="text-xs text-blue-500 animate-pulse">buscando…</span>
-                        )}
-                        {r.status === 'done' && <span className="text-green-500">✓</span>}
-                        {r.status === 'error' && <span className="text-red-500">✕</span>}
-                        <button
-                          onClick={() => handleGoogleSyncChain(r.chain)}
-                          disabled={r.status === 'running' || syncingGoogle}
-                          className="px-2.5 py-1 rounded text-xs bg-blue-100 hover:bg-blue-200 text-blue-700
-                                     dark:bg-blue-900/30 dark:text-blue-400 disabled:opacity-40 transition-colors"
-                        >
-                          Buscar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 
@@ -928,9 +710,23 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                   Actualizar datos Google Maps
                 </p>
                 <p className="text-xs text-gray-400">
-                  Usa la API Key ingresada en la pestaña Competidores. Los tiempos de viaje son un
-                  indicador de accesibilidad logística. Los mercados informales pesan
-                  3× en la puntuación comercial — actualizar mensualmente.
+                  Los tiempos de viaje son un indicador de accesibilidad logística.
+                  Los mercados informales pesan 3× en la puntuación comercial — actualizar mensualmente.
+                </p>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">
+                  API Key de Google Cloud (Places API)
+                </label>
+                <input
+                  type="password"
+                  placeholder="AIza..."
+                  value={googleApiKey}
+                  onChange={e => setGoogleApiKey(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
+                             bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-mono"
+                />
+                <p className="text-xs text-gray-400">
+                  Necesitas una clave con la API de "Places" habilitada en Google Cloud Console.
+                  La clave no se almacena — sólo se usa para esta solicitud.
                 </p>
                 <div className="grid grid-cols-1 gap-2">
                   <button
@@ -944,27 +740,6 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                     className="w-full py-2 px-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium transition-colors text-left"
                   >
                     Mercados informales (~1 min, ~$0.37)
-                  </button>
-                  <button
-                    onClick={handleRefreshNtlSettlements}
-                    className="w-full py-2 px-3 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium transition-colors text-left"
-                    title="Descarga todos los lugares poblados de Guatemala desde OpenStreetMap (aldeas, caseríos, pueblos) para los 254 municipios. Preserva las zonas de Ciudad de Guatemala."
-                  >
-                    Asentamientos nacionales — todos los municipios (OSM)
-                  </button>
-                  <button
-                    onClick={handleSeedGuatemalaZones}
-                    className="w-full py-2 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium transition-colors text-left"
-                    title="Inserta las 22 zonas administrativas de Ciudad de Guatemala en ntl_settlements para mejorar el detalle del desglose sub-municipio"
-                  >
-                    Zonas Ciudad de Guatemala (sub-municipio)
-                  </button>
-                  <button
-                    onClick={() => handleRefreshPoisOsm(false)}
-                    className="w-full py-2 px-3 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors text-left"
-                    title="Carga POIs de OpenStreetMap (bancos, mercados, farmacias…) de forma gratuita. Necesario para que Zonas y Brechas funcionen. Si poi_cache ya tiene datos, usa el botón con force=true."
-                  >
-                    🗺 POIs desde OpenStreetMap (gratis, ~30s) — activa Zonas
                   </button>
                   {/* Per-department sync */}
                   <div className="flex gap-2 items-center">
