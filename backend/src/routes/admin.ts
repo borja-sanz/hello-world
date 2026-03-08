@@ -805,6 +805,10 @@ router.post('/migrate', async (req: Request, res: Response, next: NextFunction) 
         name: 'municipio_isochrones_profile_contour_idx',
         sql:  `CREATE INDEX IF NOT EXISTS municipio_isochrones_profile_contour_idx ON municipio_isochrones (profile, contour_minutes)`,
       },
+      {
+        name: 'municipio_isochrones.fetched_at column',
+        sql:  `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
+      },
     ];
 
     const results: { name: string; status: string; error?: string }[] = [];
