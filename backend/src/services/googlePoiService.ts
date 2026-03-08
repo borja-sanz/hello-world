@@ -230,6 +230,11 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
           results.push(r);
           break outer;
         }
+        if (/denied|not authorized|REQUEST_DENIED/i.test(err.message)) {
+          endProgress(`API key inválida o sin permiso de Places API: ${err.message}`);
+          results.push(r);
+          break outer;
+        }
       }
       tickProgress(`${dept} – ${poi_type}`, 0);
       results.push(r);
@@ -292,6 +297,11 @@ export async function refreshDepartmentPois(dept: string, apiKey: string): Promi
         results.push(r);
         return results;
       }
+      if (/denied|not authorized|REQUEST_DENIED/i.test(err.message)) {
+        endProgress(`API key inválida o sin permiso de Places API: ${err.message}`);
+        results.push(r);
+        return results;
+      }
     }
     tickProgress(`${dept} – ${poi_type}`, 0);
     results.push(r);
@@ -299,7 +309,11 @@ export async function refreshDepartmentPois(dept: string, apiKey: string): Promi
   }
 
   if (deptFound === 0) {
-    endProgress('API devolvió 0 resultados — datos existentes conservados');
+    const errors = results.filter(r => r.error).map(r => `${r.poi_type}: ${r.error}`);
+    const detail = errors.length > 0
+      ? `Errores: ${errors.slice(0, 3).join(' | ')}`
+      : 'Verifica que la clave tenga Places API habilitada y cuota disponible';
+    endProgress(`API devolvió 0 resultados — ${detail}`);
     return results;
   }
 
