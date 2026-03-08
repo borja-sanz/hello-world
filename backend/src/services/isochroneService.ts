@@ -297,9 +297,9 @@ export async function getIsochroneCoverage(): Promise<IsochroneCoverage> {
       (SELECT COUNT(*)::int FROM municipios WHERE lat IS NOT NULL AND lng IS NOT NULL) AS total,
       COALESCE(COUNT(DISTINCT municipio_id)::int, 0) AS covered,
       COALESCE(SUM(CASE WHEN cnt = $1 THEN 1 ELSE 0 END)::int, 0) AS full_coverage,
-      MAX(fetched_at)::text AS last_fetched
+      MAX(last_fetched)::text AS last_fetched
     FROM (
-      SELECT municipio_id, COUNT(DISTINCT contour_minutes) AS cnt
+      SELECT municipio_id, COUNT(DISTINCT contour_minutes) AS cnt, MAX(fetched_at) AS last_fetched
       FROM municipio_isochrones WHERE profile = $2
       GROUP BY municipio_id
     ) sub
