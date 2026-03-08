@@ -13,13 +13,12 @@ export async function initDb(): Promise<void> {
 
   if (!fs.existsSync(sqlPath)) {
     console.warn('[initDb] init.sql not found at', sqlPath, '— skipping schema init');
-    return;
+  } else {
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    await pool.query(sql);
   }
 
-  const sql = fs.readFileSync(sqlPath, 'utf8');
-  await pool.query(sql);
-
-  // Column migrations: safely add columns that may be missing from older DB instances
+  // Column migrations: always run regardless of whether init.sql was found
   const migrations = [
     `ALTER TABLE poi_cache ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
     `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
