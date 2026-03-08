@@ -363,7 +363,7 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'marketplace', dept, client);
+        r.inserted = await upsertPois(places, 'marketplace', r.dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
@@ -419,7 +419,7 @@ export async function refreshAnchorRetailers(apiKey: string): Promise<{ chain: s
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'anchor_retailer', dept, client);
+        r.inserted = await upsertPois(places, 'anchor_retailer', r.dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
@@ -472,7 +472,7 @@ export async function refreshLdsChurches(apiKey: string): Promise<{ dept: string
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'lds_church', dept, client);
+        r.inserted = await upsertPois(places, 'lds_church', r.dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
