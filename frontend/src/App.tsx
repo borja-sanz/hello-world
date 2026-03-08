@@ -7,7 +7,7 @@ import {
   fetchOpportunities, fetchBlueOceanOpportunities,
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
-  fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei,
+  fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei, buildCompetitorGaps,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
@@ -202,21 +202,26 @@ const App: React.FC = () => {
     setBuildingNuclei(true);
     setNucleiNotBuilt(false);
     try {
-      await buildPoiNuclei();
+      // Kick off both builds simultaneously — gaps build responds immediately
+      // and runs async on the server, same as nuclei
+      await Promise.all([buildPoiNuclei(), buildCompetitorGaps()]);
 
-      // Fetch gaps immediately — doesn't depend on nuclei, runs in parallel
-      gapsLoadedRef.current = false;
-      fetchCompetitorGaps({ limit: 200 })
-        .then(r => { setCompetitorGaps(r.gaps); gapsLoadedRef.current = true; })
-        .catch(() => { /* silent */ });
-
-      // Poll every 10s for up to 90s until nuclei appear
+      // Poll every 10s for up to 90s until both tables are populated
       const poll = async (attempts: number) => {
         try {
-          const result = await fetchPoiNuclei({ limit: 200 });
-          if (result.nuclei.length > 0) {
-            setPoiNuclei(result.nuclei);
+          const [nucleiResult, gapsResult] = await Promise.all([
+            fetchPoiNuclei({ limit: 200 }),
+            fetchCompetitorGaps({ limit: 200 }),
+          ]);
+          if (nucleiResult.nuclei.length > 0) {
+            setPoiNuclei(nucleiResult.nuclei);
             setNucleiNotBuilt(false);
+          }
+          if (gapsResult.gaps.length > 0) {
+            setCompetitorGaps(gapsResult.gaps);
+            gapsLoadedRef.current = true;
+          }
+          if (nucleiResult.nuclei.length > 0 && gapsResult.gaps.length > 0) {
             setBuildingNuclei(false);
             return;
           }

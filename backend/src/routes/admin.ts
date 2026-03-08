@@ -947,6 +947,122 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
   }
 });
 
+/**
+ * POST /api/admin/build-competitor-gaps
+ *
+ * Pre-computes competitor gaps into the competitor_gaps table so the GET
+ * endpoint is just a fast SELECT. Run once after competitors / stores change.
+ */
+router.post('/build-competitor-gaps', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ message: 'Competitor gaps build started — this may take up to 60 seconds', status: 'running' });
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS competitor_gaps (
+        id                    SERIAL PRIMARY KEY,
+        cluster_id            INTEGER NOT NULL,
+        lat                   FLOAT NOT NULL,
+        lng                   FLOAT NOT NULL,
+        competitor_count      INTEGER NOT NULL DEFAULT 0,
+        chains                TEXT[] NOT NULL DEFAULT '{}',
+        nearest_own_store_km  FLOAT NOT NULL DEFAULT 0,
+        nearby_poi_score      FLOAT NOT NULL DEFAULT 0,
+        gap_score             INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+
+    await pool.query(`DELETE FROM competitor_gaps`);
+
+    await pool.query(`
+      INSERT INTO competitor_gaps (
+        cluster_id, lat, lng, competitor_count, chains,
+        nearest_own_store_km, nearby_poi_score, gap_score
+      )
+      WITH distances AS (
+        SELECT
+          c.name,
+          c.chain,
+          c.lat::float  AS lat,
+          c.lng::float  AS lng,
+          c.geometry,
+          COALESCE(
+            (SELECT ROUND(MIN(ST_Distance(
+               s.geometry::geography,
+               c.geometry::geography
+             )) / 1000)
+             FROM stores s
+             WHERE s.geometry IS NOT NULL AND s.status = 'open'
+               AND ST_DWithin(s.geometry::geography, c.geometry::geography, 200000)),
+            50
+          )::float AS nearest_own_store_km
+        FROM competitors c
+        WHERE c.geometry IS NOT NULL
+      ),
+      uncovered AS (
+        SELECT * FROM distances WHERE nearest_own_store_km > 1.5
+      ),
+      clustered AS (
+        SELECT *,
+          ST_ClusterDBSCAN(geometry, eps := 0.009, minpoints := 1) OVER () AS cluster_id
+        FROM uncovered
+      ),
+      aggregated AS (
+        SELECT
+          cluster_id,
+          AVG(lat)::float                    AS lat,
+          AVG(lng)::float                    AS lng,
+          COUNT(*)::int                      AS competitor_count,
+          ARRAY_AGG(chain)                   AS chains,
+          MIN(nearest_own_store_km)::float   AS nearest_own_store_km
+        FROM clustered
+        WHERE cluster_id IS NOT NULL
+        GROUP BY cluster_id
+        HAVING COUNT(*) >= 1
+      ),
+      enriched AS (
+        SELECT
+          a.*,
+          COALESCE((
+            SELECT SUM(CASE p.poi_type
+              WHEN 'marketplace'    THEN 3.0
+              WHEN 'market'         THEN 3.0
+              WHEN 'bank'           THEN 2.0
+              WHEN 'pharmacy'       THEN 1.5
+              WHEN 'bus_station'    THEN 1.2
+              WHEN 'fuel'           THEN 0.8
+              ELSE 1.0 END)
+            FROM poi_cache p
+            WHERE p.geometry IS NOT NULL
+              AND ST_DWithin(
+                p.geometry::geography,
+                ST_SetSRID(ST_MakePoint(a.lng, a.lat), 4326)::geography,
+                800
+              )
+          ), 0)::float AS nearby_poi_score
+        FROM aggregated a
+      )
+      SELECT
+        cluster_id,
+        lat, lng,
+        competitor_count,
+        chains,
+        nearest_own_store_km::int,
+        nearby_poi_score,
+        LEAST(100, GREATEST(0,
+          LEAST(40, competitor_count::float * 10.0) +
+          LEAST(30, nearest_own_store_km * 2.0) +
+          LEAST(30, nearby_poi_score * 2.0)
+        ))::int AS gap_score
+      FROM enriched
+      ORDER BY gap_score DESC
+    `);
+
+    console.log('Competitor gaps build complete');
+  } catch (err: any) {
+    console.error('build-competitor-gaps error:', err.message);
+  }
+});
+
 // ─── POI Cache seed persistence ───────────────────────────────────────────────
 
 /**

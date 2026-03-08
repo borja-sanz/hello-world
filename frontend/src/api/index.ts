@@ -281,6 +281,11 @@ export const buildPoiNuclei = async (): Promise<{ message: string; status: strin
   return data;
 };
 
+export const buildCompetitorGaps = async (): Promise<{ message: string; status: string }> => {
+  const { data } = await api.post('/api/admin/build-competitor-gaps');
+  return data;
+};
+
 // ─── OSM (kept for backward-compat; UI now uses /api/pois) ───────────────────
 
 export const fetchOsmStatus = async () => {

@@ -465,94 +465,27 @@ router.get('/competitor-gaps', async (req: Request, res: Response, next: NextFun
     const limit       = Math.min(parseInt((req.query.limit        as string) || '200'), 500);
     const minGapScore = parseInt((req.query.min_gap_score as string) || '0');
 
+    // Check if pre-computed table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'competitor_gaps'
+      ) AS exists
+    `);
+
+    if (!tableCheck.rows[0].exists) {
+      return res.json({ count: 0, gaps: [], message: 'competitor_gaps table not built yet. POST /api/admin/build-competitor-gaps first.' });
+    }
+
     const result = await pool.query(
-      `WITH distances AS (
-         SELECT
-           c.name,
-           c.chain,
-           c.lat::float  AS lat,
-           c.lng::float  AS lng,
-           c.geometry,
-           COALESCE(
-             (SELECT ROUND(MIN(ST_Distance(
-                s.geometry::geography,
-                c.geometry::geography
-              )) / 1000)
-              FROM stores s
-              WHERE s.geometry IS NOT NULL AND s.status = 'open'
-                AND ST_DWithin(s.geometry::geography, c.geometry::geography, 200000)),
-             50
-           )::float AS nearest_own_store_km
-         FROM competitors c
-         WHERE c.geometry IS NOT NULL
-       ),
-       uncovered AS (
-         SELECT * FROM distances WHERE nearest_own_store_km > 1.5
-       ),
-       clustered AS (
-         SELECT *,
-           ST_ClusterDBSCAN(geometry, eps := 0.009, minpoints := 1) OVER () AS cluster_id
-         FROM uncovered
-       ),
-       aggregated AS (
-         SELECT
-           cluster_id,
-           AVG(lat)::float           AS lat,
-           AVG(lng)::float           AS lng,
-           COUNT(*)::int             AS competitor_count,
-           ARRAY_AGG(chain)          AS chains,
-           MIN(nearest_own_store_km)::float AS nearest_own_store_km
-         FROM clustered
-         WHERE cluster_id IS NOT NULL
-         GROUP BY cluster_id
-         HAVING COUNT(*) >= 1
-       ),
-       enriched AS (
-         SELECT
-           a.*,
-           COALESCE((
-             SELECT SUM(CASE p.poi_type
-               WHEN 'marketplace'    THEN 3.0
-               WHEN 'market'         THEN 3.0
-               WHEN 'bank'           THEN 2.0
-               WHEN 'pharmacy'       THEN 1.5
-               WHEN 'bus_station'    THEN 1.2
-               WHEN 'fuel'           THEN 0.8
-               ELSE 1.0 END)
-             FROM poi_cache p
-             WHERE p.geometry IS NOT NULL
-               AND ST_DWithin(
-                 p.geometry::geography,
-                 ST_SetSRID(ST_MakePoint(a.lng, a.lat), 4326)::geography,
-                 800
-               )
-           ), 0)::float AS nearby_poi_score
-         FROM aggregated a
-       )
-       SELECT
-         cluster_id,
-         lat, lng,
-         competitor_count,
-         chains,
-         nearest_own_store_km::int,
-         nearby_poi_score,
-         LEAST(100, GREATEST(0,
-           LEAST(40, competitor_count::float * 10.0) +
-           LEAST(30, nearest_own_store_km * 2.0) +
-           LEAST(30, nearby_poi_score * 2.0)
-         ))::int AS gap_score
-       FROM enriched
-       WHERE LEAST(100, GREATEST(0,
-           LEAST(40, competitor_count::float * 10.0) +
-           LEAST(30, nearest_own_store_km * 2.0) +
-           LEAST(30, nearby_poi_score * 2.0)
-         ))::int >= $1
+      `SELECT cluster_id, lat, lng, competitor_count, chains,
+              nearest_own_store_km, nearby_poi_score, gap_score
+       FROM competitor_gaps
+       WHERE gap_score >= $1
        ORDER BY gap_score DESC
        LIMIT $2`,
       [minGapScore, limit]
     );
 
-    // Deduplicate chains array in JS
     const gaps = result.rows.map(r => ({
       ...r,
       chains: [...new Set(r.chains as string[])],
