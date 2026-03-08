@@ -584,7 +584,7 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
         (SELECT COUNT(*) FROM poi_cache WHERE poi_type = 'marketplace')                AS mercado_count,
         (SELECT MAX(calculated_at) FROM opportunity_scores)                            AS last_scored_at,
         (SELECT MAX(fetched_at) FROM poi_cache WHERE source = 'google_places')         AS last_google_poi_refresh,
-        (SELECT COUNT(DISTINCT municipio_id) FROM stores WHERE status = 'open')        AS covered_municipios
+        (SELECT COUNT(DISTINCT municipio) FROM stores WHERE status = 'open')           AS covered_municipios
     `);
     res.json(result.rows[0]);
   } catch (err) {
