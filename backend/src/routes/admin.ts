@@ -991,6 +991,22 @@ router.post('/save-poi-seed', async (_req: Request, res: Response, next: NextFun
 });
 
 /**
+ * GET /api/admin/download-poi-seed
+ * Returns the poi_cache_seed.json file as a downloadable attachment.
+ * Use this to pull the file out of a Render/Docker container and commit it locally.
+ */
+router.get('/download-poi-seed', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const seedFile = path.resolve(__dirname, '../../data/poi_cache_seed.json');
+    if (!fs.existsSync(seedFile)) {
+      res.status(404).json({ message: 'Seed file not found — run POST /api/admin/save-poi-seed first' });
+      return;
+    }
+    res.download(seedFile, 'poi_cache_seed.json');
+  } catch (err) { next(err); }
+});
+
+/**
  * POST /api/admin/load-poi-seed
  * Manually triggers seed import (normally runs on startup).
  * Useful when the server is already running and poi_cache is empty.
