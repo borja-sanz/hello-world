@@ -18,5 +18,14 @@ export async function initDb(): Promise<void> {
 
   const sql = fs.readFileSync(sqlPath, 'utf8');
   await pool.query(sql);
+
+  // Column migrations: safely add columns that may be missing from older DB instances
+  const migrations = [
+    `ALTER TABLE poi_cache ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
+  ];
+  for (const migration of migrations) {
+    await pool.query(migration);
+  }
   console.log('[initDb] Schema ready');
 }
