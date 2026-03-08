@@ -183,6 +183,15 @@ export async function generateAllIsochrones(
   maxAgeDays    = 30,
   onProgress?:  (done: number, total: number, result: IsochroneResult) => void
 ): Promise<IsochroneResult[]> {
+  // Ensure fetched_at column exists — guards against tables created before this column was added
+  try {
+    await pool.query(
+      `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`
+    );
+  } catch (err: any) {
+    console.warn('[isochrones] Could not ensure fetched_at column:', err.message);
+  }
+
   // Load all municipios that have coordinates
   const { rows: municipios } = await pool.query<{
     id: number; code: string; lat: string; lng: string;
@@ -279,6 +288,10 @@ export async function getIsochroneForMunicipio(
  * how many have all three contours.
  */
 export async function getIsochroneCoverage(): Promise<IsochroneCoverage> {
+  await pool.query(
+    `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`
+  ).catch(() => {});
+
   const { rows } = await pool.query(`
     SELECT
       (SELECT COUNT(*)::int FROM municipios WHERE lat IS NOT NULL AND lng IS NOT NULL) AS total,
