@@ -202,9 +202,9 @@ const App: React.FC = () => {
     setBuildingNuclei(true);
     setNucleiNotBuilt(false);
     try {
-      // Kick off both builds simultaneously — gaps build responds immediately
-      // and runs async on the server, same as nuclei
-      await Promise.all([buildPoiNuclei(), buildCompetitorGaps()]);
+      // Run sequentially to avoid deadlocks from concurrent table locks
+      await buildPoiNuclei();
+      await buildCompetitorGaps();
 
       // Poll every 10s for up to 90s until both tables are populated
       const poll = async (attempts: number) => {
