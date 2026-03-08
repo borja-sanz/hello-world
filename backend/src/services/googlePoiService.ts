@@ -177,7 +177,7 @@ async function upsertPois(places: any[], poiType: string, dept: string, client: 
     await client.query(
       `INSERT INTO poi_cache (name, poi_type, lat, lng, geometry, tags, source, fetched_at)
        VALUES ($1, $2, $3, $4,
-               ST_SetSRID(ST_MakePoint($4, $3), 4326),
+               ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326),
                $5, 'google_places', NOW())`,
       [
         (place.name ?? '').slice(0, 255),
