@@ -10,6 +10,11 @@ import { exportPoiCacheSeed, importPoiCacheSeed } from '../scripts/poiSeed';
 import { getRefreshLog } from '../services/googlePoiService';
 import { seedPoiCacheFromOsm } from '../scripts/autoSeed';
 import { AppError } from '../middleware/errorHandler';
+import {
+  generateAllIsochrones,
+  getIsochroneCoverage,
+  fetchAndSaveIsochrone,
+} from '../services/isochroneService';
 
 const router = Router();
 
@@ -771,6 +776,35 @@ router.post('/migrate', async (req: Request, res: Response, next: NextFunction) 
         name: 'municipios.drive_time_capital_min index',
         sql:  `CREATE INDEX IF NOT EXISTS municipios_drive_time_idx ON municipios (drive_time_capital_min) WHERE drive_time_capital_min IS NOT NULL`,
       },
+      {
+        name: 'municipio_isochrones table',
+        sql:  `CREATE TABLE IF NOT EXISTS municipio_isochrones (
+          id               SERIAL PRIMARY KEY,
+          municipio_id     INTEGER NOT NULL REFERENCES municipios(id) ON DELETE CASCADE,
+          profile          VARCHAR(50) NOT NULL DEFAULT 'mapbox/driving',
+          contour_minutes  INTEGER NOT NULL CHECK (contour_minutes IN (15, 30, 45)),
+          geometry         GEOMETRY(MultiPolygon, 4326) NOT NULL,
+          mapbox_model     VARCHAR(50),
+          fetched_at       TIMESTAMPTZ DEFAULT NOW(),
+          bbox_west        DECIMAL(10, 7),
+          bbox_east        DECIMAL(10, 7),
+          bbox_south       DECIMAL(10, 7),
+          bbox_north       DECIMAL(10, 7),
+          UNIQUE (municipio_id, profile, contour_minutes)
+        )`,
+      },
+      {
+        name: 'municipio_isochrones_geometry_idx',
+        sql:  `CREATE INDEX IF NOT EXISTS municipio_isochrones_geometry_idx ON municipio_isochrones USING GIST (geometry)`,
+      },
+      {
+        name: 'municipio_isochrones_municipio_idx',
+        sql:  `CREATE INDEX IF NOT EXISTS municipio_isochrones_municipio_idx ON municipio_isochrones (municipio_id)`,
+      },
+      {
+        name: 'municipio_isochrones_profile_contour_idx',
+        sql:  `CREATE INDEX IF NOT EXISTS municipio_isochrones_profile_contour_idx ON municipio_isochrones (profile, contour_minutes)`,
+      },
     ];
 
     const results: { name: string; status: string; error?: string }[] = [];
@@ -1142,6 +1176,126 @@ router.post('/load-poi-seed', async (_req: Request, res: Response, next: NextFun
       res.json({ message: `Loaded ${count} POIs from seed file into poi_cache`, count });
     }
   } catch (err) { next(err); }
+});
+
+// ─── Isochrone generation ─────────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/isochrones/generate
+ *
+ * Batch-fetches drive-time isochrone polygons for all ~334 Guatemala municipios
+ * using the Mapbox Isochrone API (one request per municipio, 3 contours each).
+ *
+ * Cost: 334 requests — well within the Mapbox free tier (75,000 req/month).
+ * Time: ~85 seconds at 4 req/s.
+ *
+ * Responds immediately with 200; generation runs async.
+ * Poll GET /api/admin/isochrones/status for coverage progress.
+ *
+ * Body: {
+ *   mapbox_token?: string,  // pk.ey… token — falls back to MAPBOX_SERVER_TOKEN env var
+ *   force?: boolean,        // re-fetch even if already fresh (default: false)
+ *   max_age_days?: number   // skip municipios fetched within N days (default: 30)
+ * }
+ */
+router.post('/isochrones/generate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const mapboxToken = ((req.body?.mapbox_token as string | undefined)?.trim())
+      || process.env.MAPBOX_SERVER_TOKEN;
+
+    if (!mapboxToken) {
+      throw new AppError(400, 'Provide mapbox_token in request body or set MAPBOX_SERVER_TOKEN env var');
+    }
+
+    const force      = Boolean(req.body?.force ?? false);
+    const maxAgeDays = parseInt(String(req.body?.max_age_days ?? '30'), 10);
+
+    // Respond immediately — generation runs async and takes ~85 seconds
+    res.json({
+      message:      'Isochrone generation started — ~334 municipios at 4 req/s ≈ 85 seconds',
+      status:       'running',
+      force,
+      max_age_days: maxAgeDays,
+    });
+
+    generateAllIsochrones(mapboxToken, force, maxAgeDays, (done, total, result) => {
+      if (done % 50 === 0 || done === total) {
+        console.log(`[isochrones] ${done}/${total} — municipio ${result.municipio_id} ${result.skipped ? 'skipped (fresh)' : result.success ? `ok (${result.contours_saved} contours)` : `FAIL: ${result.error}`}`);
+      }
+    }).then(results => {
+      const fetched = results.filter(r => r.success && !r.skipped).length;
+      const skipped = results.filter(r => r.skipped).length;
+      const failed  = results.filter(r => !r.success).length;
+      console.log(`[isochrones] Complete: ${fetched} fetched, ${skipped} skipped (fresh), ${failed} failed`);
+    }).catch(err => {
+      console.error('[isochrones] Batch generation error:', err.message);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/admin/isochrones/status
+ *
+ * Returns isochrone coverage summary: how many municipios have polygons
+ * and how many have all 3 contours (15/30/45 min).
+ */
+router.get('/isochrones/status', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const coverage = await getIsochroneCoverage();
+    res.json(coverage);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/admin/isochrones/single
+ *
+ * Fetches and stores isochrones for a single municipio. Useful for testing
+ * the integration before running the full batch.
+ *
+ * Body: {
+ *   municipio_id: number,
+ *   mapbox_token?: string  // falls back to MAPBOX_SERVER_TOKEN env var
+ * }
+ */
+router.post('/isochrones/single', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const municipioId = parseInt(String(req.body?.municipio_id ?? ''), 10);
+    const mapboxToken = ((req.body?.mapbox_token as string | undefined)?.trim())
+      || process.env.MAPBOX_SERVER_TOKEN;
+
+    if (isNaN(municipioId)) throw new AppError(400, 'municipio_id (integer) is required');
+    if (!mapboxToken)       throw new AppError(400, 'Provide mapbox_token in body or set MAPBOX_SERVER_TOKEN env var');
+
+    const mResult = await pool.query(
+      `SELECT lat, lng, name, department FROM municipios WHERE id = $1`,
+      [municipioId]
+    );
+    if (!mResult.rows.length) throw new AppError(404, `Municipio ${municipioId} not found`);
+
+    const { lat, lng, name, department } = mResult.rows[0];
+    const result = await fetchAndSaveIsochrone(
+      municipioId,
+      parseFloat(lat),
+      parseFloat(lng),
+      mapboxToken
+    );
+
+    res.json({
+      municipio_id:  municipioId,
+      municipio:     `${name}, ${department}`,
+      lat:           parseFloat(lat),
+      lng:           parseFloat(lng),
+      success:       result.success,
+      contours_saved: result.contours_saved,
+      error:         result.error,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

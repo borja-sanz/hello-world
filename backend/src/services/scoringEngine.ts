@@ -270,28 +270,61 @@ async function scoreMobility(
   department: string | null,
   municipioPop: number,
   areaKm2: number | null,
-  driveTimeMin: number | null
+  driveTimeMin: number | null,
+  municipioId: number | null = null,
+  isoContours: Set<number> = new Set()
 ): Promise<number> {
   const geo = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`;
 
   // ── 1. Transit corridor signal ────────────────────────────────────────────
-  const [transitResult, fuelResult] = await Promise.all([
-    pool.query(
-      `SELECT COUNT(*) AS cnt FROM poi_cache
-       WHERE poi_type IN ('bus_station','transit_station')
-         AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
-      [lat, lng]
-    ),
-    pool.query(
-      `SELECT COUNT(*) AS cnt FROM poi_cache
-       WHERE poi_type = 'fuel'
-         AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
-      [lat, lng]
-    ),
-  ]);
+  // 30-min isochrone ≈ 15km drive coverage in Guatemala. Prefer polygon over circle.
+  let transitCount: number;
+  let fuelCount: number;
 
-  const transitCount = parseInt(transitResult.rows[0]?.cnt ?? '0');
-  const fuelCount    = parseInt(fuelResult.rows[0]?.cnt ?? '0');
+  if (municipioId !== null && isoContours.has(30)) {
+    const [transitResult, fuelResult] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM poi_cache
+         WHERE poi_type IN ('bus_station','transit_station')
+           AND ST_Intersects(geometry, (
+             SELECT geometry FROM municipio_isochrones
+             WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 30
+             LIMIT 1
+           ))`,
+        [municipioId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM poi_cache
+         WHERE poi_type = 'fuel'
+           AND ST_Intersects(geometry, (
+             SELECT geometry FROM municipio_isochrones
+             WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 30
+             LIMIT 1
+           ))`,
+        [municipioId]
+      ),
+    ]);
+    transitCount = parseInt(transitResult.rows[0]?.cnt ?? '0');
+    fuelCount    = parseInt(fuelResult.rows[0]?.cnt ?? '0');
+  } else {
+    // Fallback: straight-line radius
+    const [transitResult, fuelResult] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM poi_cache
+         WHERE poi_type IN ('bus_station','transit_station')
+           AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
+        [lat, lng]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS cnt FROM poi_cache
+         WHERE poi_type = 'fuel'
+           AND ST_DWithin(geometry::geography, ${geo}, 15000)`,
+        [lat, lng]
+      ),
+    ]);
+    transitCount = parseInt(transitResult.rows[0]?.cnt ?? '0');
+    fuelCount    = parseInt(fuelResult.rows[0]?.cnt ?? '0');
+  }
 
   const corridorScore = clamp(transitCount * 8 + fuelCount * 3, 0, 50);
 
@@ -311,15 +344,41 @@ async function scoreMobility(
     baseScore = corridorScore + driveBonus;
   } else {
     // Use store/competitor presence as a last-resort signal (implies road access)
-    const storeResult = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM (
-         SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
-         UNION ALL
-         SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
-       ) combined`,
-      [lat, lng]
-    );
-    const storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
+    // 15-min isochrone ≈ 10km drive coverage. Prefer polygon over circle.
+    let storeCount: number;
+    if (municipioId !== null && isoContours.has(15)) {
+      const storeResult = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM (
+           SELECT geometry FROM stores
+             WHERE geometry IS NOT NULL
+               AND ST_Intersects(geometry, (
+                 SELECT geometry FROM municipio_isochrones
+                 WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+                 LIMIT 1
+               ))
+           UNION ALL
+           SELECT geometry FROM competitors
+             WHERE geometry IS NOT NULL
+               AND ST_Intersects(geometry, (
+                 SELECT geometry FROM municipio_isochrones
+                 WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+                 LIMIT 1
+               ))
+         ) combined`,
+        [municipioId]
+      );
+      storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
+    } else {
+      const storeResult = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM (
+           SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
+           UNION ALL
+           SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
+         ) combined`,
+        [lat, lng]
+      );
+      storeCount = parseInt(storeResult.rows[0]?.cnt ?? '0');
+    }
     baseScore = (isUrban ? 35 : 15) + Math.min(storeCount * 4, 25);
   }
 
@@ -356,40 +415,85 @@ async function scoreMobility(
  *
  * Fallback: competitor count (formal commerce signals purchasing power).
  */
-async function scoreCommercial(lat: number, lng: number): Promise<number> {
-  // Weighted sum of commercial POIs within 5km
-  const poiResult = await pool.query(
-    `SELECT COALESCE(SUM(
-       CASE poi_type
-         WHEN 'marketplace'     THEN 3.0
-         WHEN 'anchor_retailer' THEN 2.5
-         WHEN 'bank'            THEN 2.0
-         WHEN 'pharmacy'        THEN 1.5
-         WHEN 'cooperativa'     THEN 1.5
-         WHEN 'bus_station'     THEN 1.2
-         WHEN 'hospital'        THEN 1.0
-         WHEN 'school'          THEN 1.0
-         WHEN 'money_transfer'  THEN 1.0
-         WHEN 'municipalidad'   THEN 1.0
-         WHEN 'atm'             THEN 1.0
-         WHEN 'supermarket'     THEN 1.0
-         WHEN 'fuel'            THEN 0.8
-         WHEN 'tienda'          THEN 0.4
-         ELSE 1.0
-       END
-     ), 0) AS weighted_cnt
-     FROM poi_cache
-     WHERE poi_type IN ('bank','pharmacy','marketplace','market','hospital',
-                        'school','fuel','supermarket','money_transfer','atm',
-                        'bus_station','hardware','anchor_retailer','cooperativa',
-                        'municipalidad','tienda')
-       AND ST_DWithin(
-         geometry::geography,
-         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-         5000
-       )`,
-    [lat, lng]
-  );
+async function scoreCommercial(
+  lat: number,
+  lng: number,
+  municipioId: number | null = null,
+  isoContours: Set<number> = new Set()
+): Promise<number> {
+  // Weighted sum of commercial POIs.
+  // 15-min isochrone ≈ 5km drive coverage in Guatemala. Prefer polygon over circle.
+  let poiResult: any;
+
+  if (municipioId !== null && isoContours.has(15)) {
+    poiResult = await pool.query(
+      `SELECT COALESCE(SUM(
+         CASE poi_type
+           WHEN 'marketplace'     THEN 3.0
+           WHEN 'anchor_retailer' THEN 2.5
+           WHEN 'bank'            THEN 2.0
+           WHEN 'pharmacy'        THEN 1.5
+           WHEN 'cooperativa'     THEN 1.5
+           WHEN 'bus_station'     THEN 1.2
+           WHEN 'hospital'        THEN 1.0
+           WHEN 'school'          THEN 1.0
+           WHEN 'money_transfer'  THEN 1.0
+           WHEN 'municipalidad'   THEN 1.0
+           WHEN 'atm'             THEN 1.0
+           WHEN 'supermarket'     THEN 1.0
+           WHEN 'fuel'            THEN 0.8
+           WHEN 'tienda'          THEN 0.4
+           ELSE 1.0
+         END
+       ), 0) AS weighted_cnt
+       FROM poi_cache
+       WHERE poi_type IN ('bank','pharmacy','marketplace','market','hospital',
+                          'school','fuel','supermarket','money_transfer','atm',
+                          'bus_station','hardware','anchor_retailer','cooperativa',
+                          'municipalidad','tienda')
+         AND ST_Intersects(geometry, (
+           SELECT geometry FROM municipio_isochrones
+           WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+           LIMIT 1
+         ))`,
+      [municipioId]
+    );
+  } else {
+    // Fallback: straight-line 5km radius
+    poiResult = await pool.query(
+      `SELECT COALESCE(SUM(
+         CASE poi_type
+           WHEN 'marketplace'     THEN 3.0
+           WHEN 'anchor_retailer' THEN 2.5
+           WHEN 'bank'            THEN 2.0
+           WHEN 'pharmacy'        THEN 1.5
+           WHEN 'cooperativa'     THEN 1.5
+           WHEN 'bus_station'     THEN 1.2
+           WHEN 'hospital'        THEN 1.0
+           WHEN 'school'          THEN 1.0
+           WHEN 'money_transfer'  THEN 1.0
+           WHEN 'municipalidad'   THEN 1.0
+           WHEN 'atm'             THEN 1.0
+           WHEN 'supermarket'     THEN 1.0
+           WHEN 'fuel'            THEN 0.8
+           WHEN 'tienda'          THEN 0.4
+           ELSE 1.0
+         END
+       ), 0) AS weighted_cnt
+       FROM poi_cache
+       WHERE poi_type IN ('bank','pharmacy','marketplace','market','hospital',
+                          'school','fuel','supermarket','money_transfer','atm',
+                          'bus_station','hardware','anchor_retailer','cooperativa',
+                          'municipalidad','tienda')
+         AND ST_DWithin(
+           geometry::geography,
+           ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+           5000
+         )`,
+      [lat, lng]
+    );
+  }
+
   const poiCount = parseFloat(poiResult.rows[0]?.weighted_cnt ?? '0');
 
   if (poiCount > 0) {
@@ -405,16 +509,31 @@ async function scoreCommercial(lat: number, lng: number): Promise<number> {
     ]));
   }
 
-  // Fallback: competitors within 5km as commercial activity signal
-  const compResult = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM competitors
-     WHERE ST_DWithin(
-       geometry::geography,
-       ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-       5000
-     )`,
-    [lat, lng]
-  );
+  // Fallback: competitors within range as commercial activity signal
+  let compResult: any;
+  if (municipioId !== null && isoContours.has(15)) {
+    compResult = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM competitors
+       WHERE geometry IS NOT NULL
+         AND ST_Intersects(geometry, (
+           SELECT geometry FROM municipio_isochrones
+           WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+           LIMIT 1
+         ))`,
+      [municipioId]
+    );
+  } else {
+    compResult = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM competitors
+       WHERE ST_DWithin(
+         geometry::geography,
+         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+         5000
+       )`,
+      [lat, lng]
+    );
+  }
+
   const compCount = parseInt(compResult.rows[0]?.cnt ?? '0');
   return clamp(piecewise(compCount, [
     [0,  20],
@@ -452,10 +571,16 @@ function competitorWeight(chain: string): number {
  *   Effective competitor count = Σ competitorWeight(chain).
  *   Proven demand at moderate levels; saturation penalty above threshold.
  */
-async function scoreCompetition(lat: number, lng: number): Promise<number> {
+async function scoreCompetition(
+  lat: number,
+  lng: number,
+  municipioId: number | null = null,
+  isoContours: Set<number> = new Set()
+): Promise<number> {
   let score = 50;
 
   // ── Own-store cannibalization ────────────────────────────────────────────
+  // KNN order-by-geometry is not isochrone-replaceable — keep radius-based.
   const ourResult = await pool.query(
     `SELECT format,
             ST_Distance(geometry::geography,
@@ -478,36 +603,78 @@ async function scoreCompetition(lat: number, lng: number): Promise<number> {
   }
 
   // ── Retail void detection ─────────────────────────────────────────────────
-  // A location where the nearest formal grocery store of ANY kind (own or
-  // competitor) is >20 km away is a captive market: residents have no choice
-  // but to travel far for groceries, creating strong pent-up demand. This is
-  // one of the most reliable signals for a high-performing Despensa Familiar.
-  // Checked against ALL stores + ALL competitors within 20 km radius.
-  const voidResult = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM (
-       SELECT geometry FROM stores      WHERE geometry IS NOT NULL
-         AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
-       UNION ALL
-       SELECT geometry FROM competitors WHERE geometry IS NOT NULL
-         AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
-     ) combined`,
-    [lat, lng]
-  );
-  const anyStoreNearby = parseInt(voidResult.rows[0]?.cnt ?? '0') > 0;
+  // A location where no formal grocery store is reachable within ~45 min drive
+  // (or 20km radius as fallback) is a captive market with strong pent-up demand.
+  // 45-min isochrone is more accurate than a 20km radius in mountainous terrain.
+  let anyStoreNearby: boolean;
+
+  if (municipioId !== null && isoContours.has(45)) {
+    const voidResult = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT geometry FROM stores WHERE geometry IS NOT NULL
+           AND ST_Intersects(geometry, (
+             SELECT geometry FROM municipio_isochrones
+             WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 45
+             LIMIT 1
+           ))
+         UNION ALL
+         SELECT geometry FROM competitors WHERE geometry IS NOT NULL
+           AND ST_Intersects(geometry, (
+             SELECT geometry FROM municipio_isochrones
+             WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 45
+             LIMIT 1
+           ))
+       ) combined`,
+      [municipioId]
+    );
+    anyStoreNearby = parseInt(voidResult.rows[0]?.cnt ?? '0') > 0;
+  } else {
+    // Fallback: 20km radius
+    const voidResult = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT geometry FROM stores      WHERE geometry IS NOT NULL
+           AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
+         UNION ALL
+         SELECT geometry FROM competitors WHERE geometry IS NOT NULL
+           AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
+       ) combined`,
+      [lat, lng]
+    );
+    anyStoreNearby = parseInt(voidResult.rows[0]?.cnt ?? '0') > 0;
+  }
+
   if (!anyStoreNearby) score += 25; // true retail desert — captive market bonus
 
   // ── Format-weighted external competition ─────────────────────────────────
-  const compResult = await pool.query(
-    `SELECT chain FROM competitors
-     WHERE geometry IS NOT NULL
-       AND chain NOT IN ('Despensa Familiar','Maxi Despensa','Walmart','Paiz')
-       AND ST_DWithin(
-         geometry::geography,
-         ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,
-         5000
-       )`,
-    [lat, lng]
-  );
+  // 15-min isochrone ≈ 5km drive for local competition density. Prefer polygon.
+  let compResult: any;
+
+  if (municipioId !== null && isoContours.has(15)) {
+    compResult = await pool.query(
+      `SELECT chain FROM competitors
+       WHERE geometry IS NOT NULL
+         AND chain NOT IN ('Despensa Familiar','Maxi Despensa','Walmart','Paiz')
+         AND ST_Intersects(geometry, (
+           SELECT geometry FROM municipio_isochrones
+           WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+           LIMIT 1
+         ))`,
+      [municipioId]
+    );
+  } else {
+    // Fallback: 5km radius
+    compResult = await pool.query(
+      `SELECT chain FROM competitors
+       WHERE geometry IS NOT NULL
+         AND chain NOT IN ('Despensa Familiar','Maxi Despensa','Walmart','Paiz')
+         AND ST_DWithin(
+           geometry::geography,
+           ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,
+           5000
+         )`,
+      [lat, lng]
+    );
+  }
 
   // Sum weighted effective competitor count
   const effectiveCount = compResult.rows.reduce(
@@ -694,29 +861,73 @@ export async function scorePoint(
   const areaKm2         = municipio?.area_km2         != null ? parseFloat(municipio.area_km2)         : null;
   const driveTimeMin    = municipio?.drive_time_capital_min != null ? parseInt(municipio.drive_time_capital_min) : null;
 
-  // Population within rings
-  const pop3Result = await pool.query(
-    `SELECT COALESCE(SUM(population),0) AS total FROM municipios
-     WHERE population IS NOT NULL AND centroid IS NOT NULL
-       AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 3000)`,
-    [lat, lng]
-  );
-  const pop10Result = await pool.query(
-    `SELECT COALESCE(SUM(population),0) AS total FROM municipios
-     WHERE population IS NOT NULL AND centroid IS NOT NULL
-       AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)`,
-    [lat, lng]
-  );
-  const pop3km  = parseInt(pop3Result.rows[0]?.total ?? '0');
-  const pop10km = parseInt(pop10Result.rows[0]?.total ?? '0');
+  // ── Pre-load available isochrone contours for this municipio (one query) ──
+  // This avoids repeated existence-check round-trips inside each factor function.
+  // When no isochrones exist yet the set is empty and all factors use radius fallback.
+  const municipioId = municipio?.id ?? null;
+  const isoContours = new Set<number>();
+  if (municipioId !== null) {
+    const isoCheck = await pool.query(
+      `SELECT contour_minutes FROM municipio_isochrones
+       WHERE municipio_id = $1 AND profile = 'mapbox/driving'`,
+      [municipioId]
+    );
+    for (const row of isoCheck.rows) isoContours.add(row.contour_minutes);
+  }
+
+  // ── Population within drive-time areas ────────────────────────────────────
+  // Use 15-min isochrone (≈ 3km short ring) and 30-min (≈ 10km wider ring)
+  // when available; otherwise fall back to straight-line radius.
+  let pop3km  = 0;
+  let pop10km = 0;
+
+  const [pop3Result, pop10Result] = await Promise.all([
+    isoContours.has(15)
+      ? pool.query(
+          `SELECT COALESCE(SUM(population), 0) AS total FROM municipios
+           WHERE population IS NOT NULL AND centroid IS NOT NULL
+             AND ST_Intersects(centroid, (
+               SELECT geometry FROM municipio_isochrones
+               WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
+               LIMIT 1
+             ))`,
+          [municipioId]
+        )
+      : pool.query(
+          `SELECT COALESCE(SUM(population),0) AS total FROM municipios
+           WHERE population IS NOT NULL AND centroid IS NOT NULL
+             AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 3000)`,
+          [lat, lng]
+        ),
+    isoContours.has(30)
+      ? pool.query(
+          `SELECT COALESCE(SUM(population), 0) AS total FROM municipios
+           WHERE population IS NOT NULL AND centroid IS NOT NULL
+             AND ST_Intersects(centroid, (
+               SELECT geometry FROM municipio_isochrones
+               WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 30
+               LIMIT 1
+             ))`,
+          [municipioId]
+        )
+      : pool.query(
+          `SELECT COALESCE(SUM(population),0) AS total FROM municipios
+           WHERE population IS NOT NULL AND centroid IS NOT NULL
+             AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 10000)`,
+          [lat, lng]
+        ),
+  ]);
+
+  pop3km  = parseInt(pop3Result.rows[0]?.total ?? '0');
+  pop10km = parseInt(pop10Result.rows[0]?.total ?? '0');
 
   // Calculate all factor scores
   const [mobilityScore, commercialScore, competitionScore, socioScore] =
     await Promise.all([
-      scoreMobility(lat, lng, isUrban, department, pop, areaKm2, driveTimeMin),
-      scoreCommercial(lat, lng),
-      scoreCompetition(lat, lng),
-      scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex, municipio?.id ?? null),
+      scoreMobility(lat, lng, isUrban, department, pop, areaKm2, driveTimeMin, municipioId, isoContours),
+      scoreCommercial(lat, lng, municipioId, isoContours),
+      scoreCompetition(lat, lng, municipioId, isoContours),
+      scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex, municipioId),
     ]);
 
   const popScore = scorePopulation(pop, pop3km, pop10km, cfg, department);

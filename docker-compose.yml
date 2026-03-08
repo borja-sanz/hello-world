@@ -29,6 +29,7 @@ services:
       PORT: ${BACKEND_PORT:-4000}
       DATABASE_URL: postgresql://${POSTGRES_USER:-georetail}:${POSTGRES_PASSWORD:-georetail_secret}@postgres:5432/${POSTGRES_DB:-georetail}
       OVERPASS_API_URL: ${OVERPASS_API_URL:-https://overpass-api.de/api/interpreter}
+      MAPBOX_SERVER_TOKEN: ${MAPBOX_SERVER_TOKEN:-pk.eyJ1IjoiYm9yamFzYW56IiwiYSI6ImNtbWkyMGljcTA3czIycnE0MnhyOTJ4aDkifQ.PaPoI1uVlEI3UrNF7Q7Suw}
     ports:
       - "${BACKEND_PORT:-4000}:4000"
     volumes:

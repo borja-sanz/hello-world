@@ -298,3 +298,57 @@ COMMENT ON COLUMN municipios.drive_time_capital_min IS
 
 COMMENT ON COLUMN poi_cache.source IS
   'Data source: ''osm'' (OpenStreetMap/Overpass), ''google_places'' (Google Places API).';
+
+-- ============================================================
+-- MUNICIPIO_ISOCHRONES: Drive-time polygons from Mapbox API
+--
+-- Pre-computed isochrone polygons for each Guatemala municipio
+-- centroid. Used by the scoring engine to replace straight-line
+-- ST_DWithin radius queries with drive-time polygon queries.
+--
+-- Profile: mapbox/driving
+-- Contours: 15 / 30 / 45 minutes
+-- One Mapbox request returns all 3 contours per municipio.
+-- 334 municipios × 1 request = 334 API calls (free tier: 75k/month).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS municipio_isochrones (
+    id               SERIAL PRIMARY KEY,
+    municipio_id     INTEGER NOT NULL REFERENCES municipios(id) ON DELETE CASCADE,
+
+    -- Travel profile and contour duration
+    profile          VARCHAR(50) NOT NULL DEFAULT 'mapbox/driving',
+    contour_minutes  INTEGER NOT NULL CHECK (contour_minutes IN (15, 30, 45)),
+
+    -- The isochrone polygon (Mapbox returns GeoJSON — stored as GEOMETRY for fast ST_Intersects)
+    geometry         GEOMETRY(MultiPolygon, 4326) NOT NULL,
+
+    -- Source metadata
+    mapbox_model     VARCHAR(50),
+    fetched_at       TIMESTAMPTZ DEFAULT NOW(),
+
+    -- Bounding box columns for fast bbox pre-filter before ST_Intersects
+    bbox_west        DECIMAL(10, 7),
+    bbox_east        DECIMAL(10, 7),
+    bbox_south       DECIMAL(10, 7),
+    bbox_north       DECIMAL(10, 7),
+
+    UNIQUE (municipio_id, profile, contour_minutes)
+);
+
+-- Primary spatial index (used by ST_Intersects in scoring queries)
+CREATE INDEX IF NOT EXISTS municipio_isochrones_geometry_idx
+    ON municipio_isochrones USING GIST (geometry);
+
+-- Lookup index: find all isochrones for a given municipio quickly
+CREATE INDEX IF NOT EXISTS municipio_isochrones_municipio_idx
+    ON municipio_isochrones (municipio_id);
+
+-- Compound index: profile + contour for the exact query shape used in scoring
+CREATE INDEX IF NOT EXISTS municipio_isochrones_profile_contour_idx
+    ON municipio_isochrones (profile, contour_minutes);
+
+COMMENT ON TABLE municipio_isochrones IS
+  'Drive-time isochrone polygons fetched from Mapbox Isochrone API for each '
+  'Guatemala municipio centroid. Used by the scoring engine to replace straight-'
+  'line ST_DWithin radius queries with drive-time polygon queries. '
+  'Profile: mapbox/driving. Contours: 15/30/45 minutes.';
