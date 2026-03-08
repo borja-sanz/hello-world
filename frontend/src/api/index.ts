@@ -308,4 +308,9 @@ export const loadPoiSeed = async (): Promise<{ message: string; count: number }>
   return data;
 };
 
+export const refreshDepartmentPois = async (dept: string, apiKey: string): Promise<{ message: string }> => {
+  const { data } = await api.post('/api/pois/refresh/department', { dept, api_key: apiKey });
+  return data;
+};
+
 export default api;

@@ -11,6 +11,7 @@ import {
   savePoiSeed,
   loadPoiSeed,
   refreshPoisOsm,
+  refreshDepartmentPois,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -68,6 +69,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
   const [importCompResult,  setImportCompResult]  = useState<ImportResult | null>(null);
   const [msg,               setMsg]               = useState('');
   const [tab,               setTab]               = useState<'weights' | 'thresholds' | 'stores' | 'competitors' | 'system'>('weights');
+  const [selectedDept,      setSelectedDept]      = useState('Guatemala');
   const fileInputRef     = useRef<HTMLInputElement>(null);
   const compFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -150,6 +152,16 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
       await recalculateAllScores();
       setMsg('✅ Recálculo iniciado');
     } catch { setMsg('❌ Error'); }
+  };
+
+  const handleRefreshDepartment = async () => {
+    if (!googleApiKey.trim()) { setMsg('Ingresa tu API Key en la pestaña Competidores primero'); return; }
+    try {
+      setMsg(`⏳ Sincronizando POIs de ${selectedDept} (~20–60 s)…`);
+      await refreshDepartmentPois(selectedDept, googleApiKey.trim());
+      setMsg('');
+      startProgressPolling();
+    } catch { setMsg(`❌ Error al sincronizar ${selectedDept}`); }
   };
 
   const handleRefreshPois = async () => {
@@ -954,11 +966,34 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged }) => {
                   >
                     🗺 POIs desde OpenStreetMap (gratis, ~30s) — activa Zonas
                   </button>
+                  {/* Per-department sync */}
+                  <div className="flex gap-2 items-center">
+                    <select
+                      value={selectedDept}
+                      onChange={e => setSelectedDept(e.target.value)}
+                      className="flex-1 py-1.5 px-2 rounded-lg bg-gray-700 text-white text-xs border border-gray-600 focus:outline-none"
+                    >
+                      {[
+                        'Alta Verapaz','Baja Verapaz','Chimaltenango','Chiquimula',
+                        'El Progreso','Escuintla','Guatemala','Huehuetenango',
+                        'Izabal','Jalapa','Jutiapa','Petén','Quetzaltenango',
+                        'Quiché','Retalhuleu','Sacatepéquez','San Marcos',
+                        'Santa Rosa','Sololá','Suchitepéquez','Totonicapán','Zacapa',
+                      ].map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <button
+                      onClick={handleRefreshDepartment}
+                      className="py-1.5 px-3 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium transition-colors whitespace-nowrap"
+                      title="Sincroniza solo este departamento (~20–60 s, ~$0.20–0.55). Los resultados aparecen en el mapa al terminar."
+                    >
+                      Sync depto
+                    </button>
+                  </div>
                   <button
                     onClick={handleRefreshPois}
                     className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors text-left"
                   >
-                    POIs comerciales: bancos, farmacias, escuelas… (~5 min, ~$4–12)
+                    POIs comerciales: todos los deptos (~5 min, ~$4–12)
                   </button>
                   <button
                     onClick={handleRefreshAll}

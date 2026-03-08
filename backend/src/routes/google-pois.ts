@@ -22,6 +22,7 @@ import {
   refreshLdsChurches,
   refreshAnchorRetailers,
   refreshDriveTimes,
+  refreshDepartmentPois,
   getPoiCounts,
   getRefreshLog,
   getRefreshProgress,
@@ -93,6 +94,27 @@ router.post('/refresh/lds', async (req: Request, res: Response, next: NextFuncti
       })
       .catch(e => console.error('[google-pois] LDS error:', e.message));
     res.json({ message: 'LDS church refresh started (~1 min)' });
+  } catch (err) { next(err); }
+});
+
+/** POST /api/pois/refresh/department — Nearby Search for a single department only.
+ *  Body: { dept: string, api_key?: string }
+ *  Returns results immediately after the dept is done (~20–60 s, ~$0.20–0.55). */
+router.post('/refresh/department', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const apiKey = resolveKey(req);
+    const dept = req.body?.dept as string | undefined;
+    if (!dept) throw new AppError(400, 'dept is required in request body');
+
+    refreshDepartmentPois(dept, apiKey)
+      .then(async r => {
+        const n = r.reduce((s, x) => s + x.inserted, 0);
+        console.log(`[google-pois] Dept ${dept} done: ${n} POIs inserted`);
+        await exportPoiCacheSeed().catch(e => console.warn('[poiSeed] Auto-export failed:', e.message));
+      })
+      .catch(e => console.error(`[google-pois] Dept ${dept} error:`, e.message));
+
+    res.json({ message: `POI sync for ${dept} started (~20–60 s)` });
   } catch (err) { next(err); }
 });
 

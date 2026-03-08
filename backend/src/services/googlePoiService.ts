@@ -159,7 +159,7 @@ async function textSearchAllPages(
 
 // ─── DB upsert helper ────────────────────────────────────────────────────────
 
-async function upsertPois(places: any[], poiType: string, client: any): Promise<number> {
+async function upsertPois(places: any[], poiType: string, dept: string, client: any): Promise<number> {
   let inserted = 0;
   for (const place of places) {
     const placeId = place.place_id as string;
@@ -183,7 +183,7 @@ async function upsertPois(places: any[], poiType: string, client: any): Promise<
         (place.name ?? '').slice(0, 255),
         poiType,
         lat, lng,
-        JSON.stringify({ place_id: placeId, rating: place.rating, types: place.types }),
+        JSON.stringify({ place_id: placeId, dept, rating: place.rating, types: place.types }),
       ]
     );
     inserted++;
@@ -209,29 +209,25 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
   const depts = Object.keys(DEPT_CENTROIDS);
   startProgress('pois', depts.length * NEARBY_TYPES.length);
 
-  // ── Pass 1: fetch all results from Google (no DB writes yet) ─────────────
-  // Collecting before deleting ensures existing data is never destroyed when
-  // the API returns 0 results (quota hit, key issue, network failure, etc.).
-  type Pending = { r: PoiRefreshResult; places: any[] };
-  const pending: Pending[] = [];
-  let totalFound = 0;
-  let quotaHit = false;
-
+  // Fetch + commit one department at a time so partial results are visible immediately.
+  // Deduplication is by place_id (stored in tags), so re-runs are safe without a prior DELETE.
   outer: for (const dept of depts) {
     const { lat, lng } = DEPT_CENTROIDS[dept];
+    const deptPending: { r: PoiRefreshResult; places: any[] }[] = [];
+    let deptFound = 0;
+
     for (const { google_type, poi_type, keyword } of NEARBY_TYPES) {
       const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
       try {
         const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey, 3, keyword);
         r.found = places.length;
-        totalFound += places.length;
-        pending.push({ r, places });
+        deptFound += places.length;
+        deptPending.push({ r, places });
       } catch (err: any) {
         r.error = err.message;
         if (/quota/i.test(err.message)) {
           endProgress(`Cuota agotada en ${dept} – ${poi_type}`);
           results.push(r);
-          quotaHit = true;
           break outer;
         }
       }
@@ -239,44 +235,26 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
       results.push(r);
       await sleep(300);
     }
-  }
 
-  // ── Pass 2: only touch the DB if we actually got results ─────────────────
-  if (totalFound === 0) {
-    endProgress(quotaHit ? undefined : 'API devolvió 0 resultados — datos existentes conservados');
-    await pool.query(
-      `INSERT INTO osm_refresh_log (query_type, records_fetched, duration_ms, status, error_msg)
-       VALUES ('google_pois', 0, $1, 'warning', $2)`,
-      [Date.now() - start, 'API returned 0 results — existing rows preserved']
-    ).catch(() => {});
-    return results;
-  }
-
-  const client = await pool.connect();
-  try {
-    // Safe to delete now — we know we have fresh data to replace them with
-    await client.query(
-      `DELETE FROM poi_cache
-       WHERE source = 'google_places'
-         AND poi_type NOT IN ('marketplace','lds_church','anchor_retailer')`
-    );
-    for (const { r, places } of pending) {
+    // Commit this dept's results immediately so the map reflects them right away
+    if (deptFound > 0) {
+      const client = await pool.connect();
       try {
-        await client.query('BEGIN');
-        r.inserted = await upsertPois(places, r.poi_type, client);
-        await client.query('COMMIT');
-        totalInserted += r.inserted;
+        for (const { r, places } of deptPending) {
+          await client.query('BEGIN');
+          r.inserted = await upsertPois(places, r.poi_type, dept, client);
+          totalInserted += r.inserted;
+          await client.query('COMMIT');
+        }
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
-        r.error = err.message;
+      } finally {
+        client.release();
       }
     }
-    endProgress();
-  } catch (err: any) {
-    endProgress(err.message);
-  } finally {
-    client.release();
   }
+
+  endProgress();
 
   const duration = Date.now() - start;
   await pool.query(
@@ -284,6 +262,61 @@ export async function refreshNearbyPois(apiKey: string): Promise<PoiRefreshResul
      VALUES ('google_pois', $1, $2, 'success')`,
     [totalInserted, duration]
   ).catch(() => {});
+
+  return results;
+}
+
+// ─── Refresh: single department (all POI types) ───────────────────────────────
+// Lets the user sync one department at a time and see results immediately.
+
+export async function refreshDepartmentPois(dept: string, apiKey: string): Promise<PoiRefreshResult[]> {
+  if (!DEPT_CENTROIDS[dept]) throw new Error(`Unknown department: ${dept}`);
+  const { lat, lng } = DEPT_CENTROIDS[dept];
+  const results: PoiRefreshResult[] = [];
+  startProgress('pois', NEARBY_TYPES.length);
+
+  const pending: { r: PoiRefreshResult; places: any[] }[] = [];
+  let deptFound = 0;
+
+  for (const { google_type, poi_type, keyword } of NEARBY_TYPES) {
+    const r: PoiRefreshResult = { dept, poi_type, found: 0, inserted: 0 };
+    try {
+      const places = await nearbyAllPages(lat, lng, 60_000, google_type, apiKey, 3, keyword);
+      r.found = places.length;
+      deptFound += places.length;
+      pending.push({ r, places });
+    } catch (err: any) {
+      r.error = err.message;
+      if (/quota/i.test(err.message)) {
+        endProgress(`Cuota agotada – ${poi_type}`);
+        results.push(r);
+        return results;
+      }
+    }
+    tickProgress(`${dept} – ${poi_type}`, 0);
+    results.push(r);
+    await sleep(300);
+  }
+
+  if (deptFound === 0) {
+    endProgress('API devolvió 0 resultados — datos existentes conservados');
+    return results;
+  }
+
+  const client = await pool.connect();
+  try {
+    for (const { r, places } of pending) {
+      await client.query('BEGIN');
+      r.inserted = await upsertPois(places, r.poi_type, dept, client);
+      await client.query('COMMIT');
+    }
+    endProgress();
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    endProgress(err.message);
+  } finally {
+    client.release();
+  }
 
   return results;
 }
@@ -330,7 +363,7 @@ export async function refreshMercadosInformales(apiKey: string): Promise<{ dept:
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'marketplace', client);
+        r.inserted = await upsertPois(places, 'marketplace', dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
@@ -386,7 +419,7 @@ export async function refreshAnchorRetailers(apiKey: string): Promise<{ chain: s
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'anchor_retailer', client);
+        r.inserted = await upsertPois(places, 'anchor_retailer', dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
@@ -439,7 +472,7 @@ export async function refreshLdsChurches(apiKey: string): Promise<{ dept: string
     for (const { r, places } of pending) {
       try {
         await client.query('BEGIN');
-        r.inserted = await upsertPois(places, 'lds_church', client);
+        r.inserted = await upsertPois(places, 'lds_church', dept, client);
         await client.query('COMMIT');
       } catch (err: any) {
         await client.query('ROLLBACK').catch(() => {});
