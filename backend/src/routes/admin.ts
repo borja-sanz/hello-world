@@ -585,7 +585,8 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
         (SELECT MAX(calculated_at) FROM opportunity_scores)                            AS last_scored_at,
         (SELECT MAX(fetched_at) FROM poi_cache WHERE source = 'google_places')         AS last_google_poi_refresh,
         (SELECT COUNT(DISTINCT m.id) FROM municipios m
-           JOIN stores s ON ST_Within(s.geometry, m.geometry))                        AS covered_municipios
+           JOIN stores s ON ST_Within(
+             ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326), m.geometry))              AS covered_municipios
     `);
     res.json(result.rows[0]);
   } catch (err) {
