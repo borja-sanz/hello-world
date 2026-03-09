@@ -90,8 +90,7 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
             JOIN municipios m ON m.id = los.municipio_id
             WHERE s.geometry IS NOT NULL
             ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography)
-            LIMIT 1) AS nearest_store_km,
-           los.score
+            LIMIT 1) AS nearest_store_km
          FROM latest_opportunity_scores los
          WHERE COALESCE(los.population, 0) >= $1
            AND COALESCE(los.competition_score, 0) >= 60
