@@ -177,7 +177,8 @@ function scorePopulation(
   pop3km: number,
   pop10km: number,
   config: CalibrationConfig,
-  department: string | null
+  department: string | null,
+  areaKm2: number | null
 ): number {
   // Use the largest population signal we have
   const effectivePop = Math.max(population, pop3km, pop10km);
@@ -197,7 +198,19 @@ function scorePopulation(
   const growthRate = department ? (DEPT_GROWTH_RATE[department] ?? 1.85) : 1.85;
   const growthBonus = clamp((growthRate - 1.85) * 4, -6, 10);
 
-  return clamp(baseScore + growthBonus);
+  // Density bonus (0–20 pts): compact population is worth more than the same
+  // headcount dispersed across a large area. Uses municipio density when
+  // area_km2 is seeded, otherwise falls back to the department-level average.
+  const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
+  const density = (areaKm2 != null && areaKm2 > 0 && population > 0)
+    ? population / areaKm2
+    : deptAvg;
+  const densityBonus = clamp(piecewise(density, [
+    [0,    0], [50,   2], [150,  5], [300,  9],
+    [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
+  ]));
+
+  return clamp(baseScore + growthBonus + densityBonus);
 }
 
 /**
@@ -237,7 +250,7 @@ const DEPT_DENSITY: Record<string, number> = {
  * This factor captures how easy it is for customers to reach a store and
  * how much ambient foot traffic the location naturally receives.
  *
- * Three additive components:
+ * Two additive components:
  *
  * 1. Transit corridor signal (0–50 pts):
  *    Bus terminals and transit stations are the strongest indicator that a
@@ -255,10 +268,8 @@ const DEPT_DENSITY: Record<string, number> = {
  *    network. This is secondary to the corridor signal.
  *      <30 min: +20 | 30–60: +15 | 60–120: +10 | 120–180: +5 | >180: +2
  *
- * 3. Population density bonus (0–20 pts):
- *    Dense areas have more people within walking distance of any point.
- *    Uses actual municipio density when area_km2 is seeded, otherwise
- *    falls back to the department-level INE 2018 average.
+ * Note: population density bonus moved to scorePopulation — it is a demand-side
+ * signal (more customers within walking distance) not an accessibility signal.
  *
  * Urban floor: if no POI data and no drive time, urban municipios start at 35,
  *   rural at 15, so the score isn't zero for areas we haven't enriched yet.
@@ -268,8 +279,6 @@ async function scoreMobility(
   lng: number,
   isUrban: boolean,
   department: string | null,
-  municipioPop: number,
-  areaKm2: number | null,
   driveTimeMin: number | null,
   municipioId: number | null = null,
   isoContours: Set<number> = new Set()
@@ -382,18 +391,7 @@ async function scoreMobility(
     baseScore = (isUrban ? 35 : 15) + Math.min(storeCount * 4, 25);
   }
 
-  // ── 4. Density bonus (0–20 pts) ───────────────────────────────────────────
-  const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
-  const density = (areaKm2 != null && areaKm2 > 0 && municipioPop > 0)
-    ? municipioPop / areaKm2
-    : deptAvg;
-
-  const densityBonus = clamp(piecewise(density, [
-    [0,    0], [50,   2], [150,  5], [300,  9],
-    [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
-  ]));
-
-  return clamp(baseScore + densityBonus);
+  return clamp(baseScore);
 }
 
 /**
@@ -924,13 +922,13 @@ export async function scorePoint(
   // Calculate all factor scores
   const [mobilityScore, commercialScore, competitionScore, socioScore] =
     await Promise.all([
-      scoreMobility(lat, lng, isUrban, department, pop, areaKm2, driveTimeMin, municipioId, isoContours),
+      scoreMobility(lat, lng, isUrban, department, driveTimeMin, municipioId, isoContours),
       scoreCommercial(lat, lng, municipioId, isoContours),
       scoreCompetition(lat, lng, municipioId, isoContours),
       scoreSocioeconomic(lat, lng, isUrban, povertyIndex, remittanceIndex, municipioId),
     ]);
 
-  const popScore = scorePopulation(pop, pop3km, pop10km, cfg, department);
+  const popScore = scorePopulation(pop, pop3km, pop10km, cfg, department, areaKm2);
 
   const factors: FactorScores = {
     population:    popScore,
