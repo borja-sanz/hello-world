@@ -60,7 +60,6 @@ export interface OpportunityScore {
   reasoning: string;
   nearest_store_km: number | null;
   centroid?: { lat: number; lng: number };
-  virgin_market_score?: number;
 }
 
 export interface TradeAreaRing {

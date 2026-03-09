@@ -100,13 +100,7 @@ const App: React.FC = () => {
     setLoading(true);
     if (filters.blueOcean) {
       fetchBlueOceanOpportunities({ min_population: 15000, limit: 40 })
-        .then(r => setOpportunities(addCentroidsFromOpps(
-          r.opportunities.map((o: any) => ({
-            ...o,
-            // Show virgin_market_score in the badge so rank always matches the displayed number
-            score: o.virgin_market_score ?? o.score,
-          }))
-        )))
+        .then(r => setOpportunities(addCentroidsFromOpps(r.opportunities)))
         .catch(e => setError('Error blue ocean: ' + e.message))
         .finally(() => setLoading(false));
     } else {

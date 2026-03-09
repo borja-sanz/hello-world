@@ -91,21 +91,14 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
             WHERE s.geometry IS NOT NULL
             ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography)
             LIMIT 1) AS nearest_store_km,
-           -- Virgin market score: how underserved is this market?
-           -- 60% competition absence (coverage gap), 40% population viability.
-           -- Deliberately excludes commercial/socioeconomic — those penalise
-           -- underdeveloped areas that are genuinely virgin markets.
-           ROUND(
-             COALESCE(los.competition_score, 0) * 0.60 +
-             LEAST(40, COALESCE(los.population, 0)::float / 2500.0) * 0.40
-           )::int AS virgin_market_score
+           los.score
          FROM latest_opportunity_scores los
          WHERE COALESCE(los.population, 0) >= $1
            AND COALESCE(los.competition_score, 0) >= 60
        )
        SELECT * FROM ranked
        WHERE COALESCE(nearest_store_km, 9999) >= $2
-       ORDER BY virgin_market_score DESC
+       ORDER BY score DESC
        LIMIT $3`,
       [minPop, minNearestKm, limit]
     );
