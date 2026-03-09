@@ -182,8 +182,10 @@ function scorePopulation(
   department: string | null,
   areaKm2: number | null
 ): number {
-  // Use the largest population signal we have
-  const effectivePop = Math.max(population, pop3km, pop10km);
+  // Weighted catchment: own municipio population dominates (neighbourhood format,
+  // most customers on foot or bike within ~15 min). pop3km adds local density
+  // signal; pop10km is a minor secondary signal only.
+  const effectivePop = 0.50 * population + 0.40 * pop3km + 0.10 * pop10km;
   const baseScore = piecewise(effectivePop, [
     [0,                                   0],
     [5_000,                              10],
@@ -200,18 +202,18 @@ function scorePopulation(
   const growthRate = department ? (DEPT_GROWTH_RATE[department] ?? 1.85) : 1.85;
   const growthBonus = clamp((growthRate - 1.85) * 4, -6, 10);
 
-  // Density adjustment (−8 to +20 pts): compact population is worth more than the same
-  // headcount dispersed across a large area. Sparse markets are penalised — 104k people
-  // spread across 3,600 km² (Ixcán) is a harder market to serve than 104k in a compact town.
-  // Uses municipio density when area_km2 is seeded, otherwise falls back to dept average.
+  // Density penalty only (0 to −8 pts): the weighted effectivePop already rewards
+  // compact markets via a naturally higher pop3km. We keep a downside correction
+  // for truly sparse large-area municipios (e.g. Ixcán at ~28/km²) where even
+  // the weighted catchment overstates real foot-traffic viability.
+  // No upside bonus — that would double-count what the weighting already captures.
   const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
   const density = (areaKm2 != null && areaKm2 > 0 && population > 0)
     ? population / areaKm2
     : deptAvg;
   const densityBonus = clamp(piecewise(density, [
-    [0,   -8], [20,  -5], [50,   0], [150,  5],
-    [300,  9], [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
-  ]), -8, 20);
+    [0, -8], [20, -5], [50, 0], [150, 0],
+  ]), -8, 0);
 
   return clamp(baseScore + growthBonus + densityBonus);
 }
