@@ -1255,6 +1255,54 @@ router.get('/isochrones/status', async (_req: Request, res: Response, next: Next
 });
 
 /**
+ * GET /api/admin/isochrones/inspect/:municipio_id
+ *
+ * Returns the stored isochrone polygons for a municipio with area stats.
+ * Use this to verify Mapbox returned real drive-time polygons (not tiny blobs).
+ *
+ * A valid 30-min driving isochrone in Guatemala should cover ~200–2000 km².
+ * If area_km2 < 5 the polygon is degenerate — Mapbox had no road data.
+ */
+router.get('/isochrones/inspect/:municipio_id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const municipioId = parseInt(req.params.municipio_id, 10);
+    if (isNaN(municipioId)) throw new AppError(400, 'municipio_id must be an integer');
+
+    const { rows: meta } = await pool.query(
+      `SELECT name, department, lat, lng FROM municipios WHERE id = $1`,
+      [municipioId]
+    );
+    if (!meta.length) throw new AppError(404, `Municipio ${municipioId} not found`);
+
+    const { rows } = await pool.query(
+      `SELECT
+         contour_minutes,
+         fetched_at,
+         ROUND(ST_Area(geometry::geography) / 1e6) AS area_km2,
+         ST_AsGeoJSON(geometry)::jsonb             AS geojson
+       FROM municipio_isochrones
+       WHERE municipio_id = $1 AND profile = 'mapbox/driving'
+       ORDER BY contour_minutes`,
+      [municipioId]
+    );
+
+    res.json({
+      municipio_id: municipioId,
+      municipio:    `${meta[0].name}, ${meta[0].department}`,
+      centroid:     { lat: parseFloat(meta[0].lat), lng: parseFloat(meta[0].lng) },
+      contours:     rows.map(r => ({
+        contour_minutes: r.contour_minutes,
+        area_km2:        Number(r.area_km2),
+        fetched_at:      r.fetched_at,
+        geojson:         r.geojson,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/admin/isochrones/single
  *
  * Fetches and stores isochrones for a single municipio. Useful for testing
