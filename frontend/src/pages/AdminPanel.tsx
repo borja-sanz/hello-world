@@ -8,6 +8,7 @@ import {
   savePoiSeed,
   loadPoiSeed,
   refreshDepartmentPois,
+  loadViirs,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -124,6 +125,14 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
       await recalculateAllScores();
       setMsg('✅ Recálculo iniciado');
     } catch { setMsg('❌ Error'); }
+  };
+
+  const handleLoadViirs = async () => {
+    try {
+      setMsg('⏳ Cargando datos VIIRS reales… (puede tardar ~30s)');
+      const r = await loadViirs();
+      setMsg(`✅ VIIRS cargado: ${r.updated} asentamientos actualizados, ${r.skipped} fuera de rango`);
+    } catch { setMsg('❌ Error al cargar VIIRS — verifica que el archivo .tif esté en data/'); }
   };
 
   const handleRefreshDepartment = async () => {
@@ -709,6 +718,23 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
                     Último cálculo: {new Date(stats.last_scored_at).toLocaleString('es-GT')}
                   </p>
                 )}
+              </div>
+
+              {/* VIIRS nighttime lights */}
+              <div className="border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 space-y-2 bg-yellow-50 dark:bg-yellow-900/10">
+                <p className="text-xs font-semibold text-yellow-800 dark:text-yellow-300">
+                  🌙 Luces Nocturnas VIIRS
+                </p>
+                <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                  Actualiza los asentamientos sub-municipio con radiancia real del satélite VIIRS DNB 2023.
+                  El archivo GeoTIFF ya está incluido en el repositorio — no requiere descarga ni API key.
+                </p>
+                <button
+                  onClick={handleLoadViirs}
+                  className="w-full py-2 px-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium transition-colors text-left"
+                >
+                  Cargar datos VIIRS reales (~30s, sin costo)
+                </button>
               </div>
 
               {/* Google POI refresh section */}

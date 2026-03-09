@@ -318,4 +318,9 @@ export const refreshDepartmentPois = async (dept: string, apiKey: string): Promi
   return data;
 };
 
+export const loadViirs = async (): Promise<{ message: string; updated: number; skipped: number }> => {
+  const { data } = await api.post('/api/admin/load-viirs');
+  return data;
+};
+
 export default api;
