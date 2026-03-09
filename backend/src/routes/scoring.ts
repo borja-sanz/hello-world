@@ -94,6 +94,12 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
          FROM latest_opportunity_scores los
          WHERE COALESCE(los.population, 0) >= $1
            AND COALESCE(los.competition_score, 0) >= 60
+           AND NOT EXISTS (
+             SELECT 1 FROM competitors c
+             JOIN municipios m ON m.id = los.municipio_id
+             WHERE c.geometry IS NOT NULL
+               AND ST_Intersects(c.geometry, m.geometry)
+           )
        )
        SELECT * FROM ranked
        WHERE COALESCE(nearest_store_km, 9999) >= $2
