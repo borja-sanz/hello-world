@@ -9,7 +9,9 @@
 
 import { Pool } from 'pg';
 import * as fs from 'fs';
+import * as https from 'https';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -90,13 +92,28 @@ async function seedMunicipios(): Promise<void> {
     await client.query('COMMIT');
     console.log(`Done: ${inserted} inserted, ${updated} updated`);
 
-    // Try loading GADM polygon geometries if file exists
-    const gadmPath = path.resolve(__dirname, '../../../data/gadm/GTM_adm2.geojson');
+    // Try loading GADM polygon geometries
+    const gadmDir  = path.resolve(__dirname, '../../../data/gadm');
+    const gadmPath = path.join(gadmDir, 'GTM_adm2.geojson');
+    const rawPath  = path.join(gadmDir, 'gadm41_GTM_2.json');   // alternate name
+
     if (fs.existsSync(gadmPath)) {
+      // Preferred path: file already present with the expected name
+      await loadGadmGeometries(client, gadmPath);
+    } else if (fs.existsSync(rawPath)) {
+      // Alternate: file was placed manually with the GADM 4.1 filename
+      fs.renameSync(rawPath, gadmPath);
       await loadGadmGeometries(client, gadmPath);
     } else {
-      console.log('GADM file not found — using centroid-only geometries');
-      console.log('To load full polygons, download GTM_adm2.geojson to data/gadm/');
+      // Auto-download from UCDAVIS public server
+      console.log('GADM file not found — attempting automatic download...');
+      try {
+        await downloadGadmFile(gadmDir, gadmPath);
+        await loadGadmGeometries(client, gadmPath);
+      } catch (err: any) {
+        console.warn(`GADM download failed: ${err.message}`);
+        console.log('Continuing with centroid-only geometries (re-run seed after placing GTM_adm2.geojson in data/gadm/)');
+      }
     }
 
   } catch (err) {
@@ -106,6 +123,56 @@ async function seedMunicipios(): Promise<void> {
     client.release();
     await pool.end();
   }
+}
+
+async function downloadGadmFile(gadmDir: string, finalPath: string): Promise<void> {
+  const GADM_URL     = 'https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_GTM_2.json.zip';
+  const INSIDE_ZIP   = 'gadm41_GTM_2.json';
+  const zipPath      = path.join(gadmDir, 'gadm41_GTM_2.json.zip');
+
+  fs.mkdirSync(gadmDir, { recursive: true });
+
+  // Download zip with redirect support and 60-second socket timeout
+  await new Promise<void>((resolve, reject) => {
+    const file = fs.createWriteStream(zipPath);
+
+    const doRequest = (url: string, redirects = 0) => {
+      if (redirects > 5) { reject(new Error('Too many redirects')); return; }
+
+      const req = https.get(url, { timeout: 60_000 }, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const loc = res.headers.location;
+          if (!loc) { reject(new Error(`Redirect with no Location header (HTTP ${res.statusCode})`)); return; }
+          res.resume();
+          doRequest(loc, redirects + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve()));
+        file.on('error', (e) => { fs.unlink(zipPath, () => {}); reject(e); });
+      });
+
+      req.on('error',   (e) => { fs.unlink(zipPath, () => {}); reject(e); });
+      req.on('timeout', ()  => { req.destroy(); reject(new Error('Download timed out after 60 seconds')); });
+    };
+
+    doRequest(GADM_URL);
+  });
+
+  console.log('Download complete. Extracting...');
+
+  // Extract using system unzip (available on Ubuntu/Debian containers)
+  execSync(`unzip -o "${zipPath}" "${INSIDE_ZIP}" -d "${gadmDir}"`, { stdio: 'inherit' });
+
+  // Rename to the expected filename and remove zip
+  fs.renameSync(path.join(gadmDir, INSIDE_ZIP), finalPath);
+  fs.unlinkSync(zipPath);
+
+  console.log(`GADM file saved to ${finalPath}`);
 }
 
 async function loadGadmGeometries(client: any, gadmPath: string): Promise<void> {

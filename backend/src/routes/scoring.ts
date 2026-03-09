@@ -98,7 +98,23 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
              SELECT 1 FROM competitors c
              JOIN municipios m ON m.id = los.municipio_id
              WHERE c.geometry IS NOT NULL
-               AND ST_Intersects(c.geometry, m.geometry)
+               AND (
+                 CASE
+                   WHEN m.geometry IS NOT NULL
+                     THEN ST_Intersects(c.geometry, m.geometry)
+                   ELSE ST_DWithin(
+                     c.geometry::geography,
+                     m.centroid::geography,
+                     LEAST(
+                       GREATEST(
+                         SQRT(COALESCE(m.area_km2, 100) / PI()) * 1000,
+                         5000
+                       ),
+                       20000
+                     )
+                   )
+                 END
+               )
            )
        )
        SELECT * FROM ranked
