@@ -171,6 +171,8 @@ const DEPT_GROWTH_RATE: Record<string, number> = {
  *   30,000 today in Petén is a better 5-year bet than the same in Guatemala City.
  *   Bonus = (growth_rate - 1.85) × 4, capped at +10 / min -6.
  *   National average (1.85%) → +0. Petén (3.2%) → +5.4. Guatemala (1.2%) → -2.6.
+ * Density adjustment: −8 to +20 pts. Sparse markets (e.g. Ixcán at ~28/km²) are
+ *   penalised; dense markets (Guatemala City at 1,475/km²) receive the full bonus.
  */
 function scorePopulation(
   population: number,
@@ -198,17 +200,18 @@ function scorePopulation(
   const growthRate = department ? (DEPT_GROWTH_RATE[department] ?? 1.85) : 1.85;
   const growthBonus = clamp((growthRate - 1.85) * 4, -6, 10);
 
-  // Density bonus (0–20 pts): compact population is worth more than the same
-  // headcount dispersed across a large area. Uses municipio density when
-  // area_km2 is seeded, otherwise falls back to the department-level average.
+  // Density adjustment (−8 to +20 pts): compact population is worth more than the same
+  // headcount dispersed across a large area. Sparse markets are penalised — 104k people
+  // spread across 3,600 km² (Ixcán) is a harder market to serve than 104k in a compact town.
+  // Uses municipio density when area_km2 is seeded, otherwise falls back to dept average.
   const deptAvg = department ? (DEPT_DENSITY[department] ?? 0) : 0;
   const density = (areaKm2 != null && areaKm2 > 0 && population > 0)
     ? population / areaKm2
     : deptAvg;
   const densityBonus = clamp(piecewise(density, [
-    [0,    0], [50,   2], [150,  5], [300,  9],
-    [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
-  ]));
+    [0,   -8], [20,  -5], [50,   0], [150,  5],
+    [300,  9], [500, 12], [800, 15], [1500, 17], [3000, 19], [5000, 20],
+  ]), -8, 20);
 
   return clamp(baseScore + growthBonus + densityBonus);
 }
