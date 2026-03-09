@@ -697,12 +697,19 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
               })()}
 
               {/* Recalculate */}
-              <button
-                onClick={handleRecalculate}
-                className="w-full py-2 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
-              >
-                Recalcular todos los scores
-              </button>
+              <div className="space-y-1">
+                <button
+                  onClick={handleRecalculate}
+                  className="w-full py-2 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
+                >
+                  Recalcular todos los scores
+                </button>
+                {stats?.last_scored_at && (
+                  <p className="text-xs text-center text-gray-400">
+                    Último cálculo: {new Date(stats.last_scored_at).toLocaleString('es-GT')}
+                  </p>
+                )}
+              </div>
 
               {/* Google POI refresh section */}
               <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
