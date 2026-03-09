@@ -123,6 +123,7 @@ const MapView: React.FC<MapViewProps> = ({
   poiNuclei = [], competitorGaps = [], selectedOpp = null,
 }) => {
   const [currentZoom, setCurrentZoom] = useState(8);
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
   const mapRef         = useRef<L.Map | null>(null);
   const containerRef   = useRef<HTMLDivElement>(null);
   const layersRef      = useRef<{
@@ -587,8 +588,21 @@ const MapView: React.FC<MapViewProps> = ({
       )}
 
       {/* Map legend */}
-      <div className="absolute bottom-6 left-2 z-[500] bg-white dark:bg-gray-800 rounded-lg shadow-md p-2 text-xs space-y-1 max-w-[180px]">
-        <div className="font-semibold text-gray-600 dark:text-gray-300 mb-1">Leyenda</div>
+      <div className="absolute bottom-6 left-2 z-[500] bg-white dark:bg-gray-800 rounded-lg shadow-md p-2 text-xs max-w-[180px]">
+        <button
+          onClick={() => setLegendCollapsed(c => !c)}
+          className="flex items-center justify-between w-full font-semibold text-gray-600 dark:text-gray-300 mb-1"
+        >
+          <span>Leyenda</span>
+          <svg
+            className={`w-3 h-3 ml-1 transition-transform duration-200 ${legendCollapsed ? '-rotate-90' : ''}`}
+            fill="none" stroke="currentColor" strokeWidth="2.5"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {!legendCollapsed && <div className="space-y-1">
 
         {/* Store formats */}
         {Object.entries(STORE_COLORS).slice(0, 4).map(([fmt, color]) => (
@@ -717,6 +731,7 @@ const MapView: React.FC<MapViewProps> = ({
             </div>
           </>
         )}
+        </div>}
       </div>
     </div>
   );
