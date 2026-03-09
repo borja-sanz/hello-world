@@ -13,6 +13,8 @@ import { pool } from '../db';
 import { PoolClient } from 'pg';
 import axios from 'axios';
 import fs from 'fs';
+import * as https from 'https';
+import { execSync } from 'child_process';
 import { importPoiCacheSeed } from './poiSeed';
 import path from 'path';
 
@@ -820,11 +822,123 @@ async function migratePoiCacheSource(): Promise<void> {
   `).catch(() => {});
 }
 
+// ── GADM polygon geometries ───────────────────────────────────────────────────
+
+async function seedGadmGeometries(): Promise<void> {
+  // Skip if all municipios already have polygon geometry
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM municipios WHERE geometry IS NULL`
+  );
+  if (parseInt(rows[0].count) === 0) {
+    console.log('[autoSeed] GADM geometries already loaded — skipping');
+    return;
+  }
+
+  const gadmDir  = path.resolve(__dirname, '../../../data/gadm');
+  const gadmPath = path.join(gadmDir, 'GTM_adm2.geojson');
+  const rawPath  = path.join(gadmDir, 'gadm41_GTM_2.json');
+
+  // Ensure the directory exists (it may be absent in a fresh container)
+  fs.mkdirSync(gadmDir, { recursive: true });
+
+  try {
+    if (!fs.existsSync(gadmPath) && fs.existsSync(rawPath)) {
+      fs.renameSync(rawPath, gadmPath);
+    }
+
+    if (!fs.existsSync(gadmPath)) {
+      console.log('[autoSeed] Downloading GADM Guatemala polygons...');
+      await downloadGadmZip(gadmDir, gadmPath);
+    }
+
+    console.log('[autoSeed] Loading GADM geometries into municipios...');
+    await loadGadmIntoDb(gadmPath);
+  } catch (err: any) {
+    console.warn(`[autoSeed] GADM geometry load failed: ${err.message} — continuing without polygons`);
+  }
+}
+
+async function downloadGadmZip(gadmDir: string, finalPath: string): Promise<void> {
+  const GADM_URL   = 'https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_GTM_2.json.zip';
+  const INSIDE_ZIP = 'gadm41_GTM_2.json';
+  const zipPath    = path.join(gadmDir, 'gadm41_GTM_2.json.zip');
+
+  await new Promise<void>((resolve, reject) => {
+    const file = fs.createWriteStream(zipPath);
+
+    const doRequest = (url: string, redirects = 0) => {
+      if (redirects > 5) { reject(new Error('Too many redirects')); return; }
+
+      const req = https.get(url, { timeout: 60_000 }, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          const loc = res.headers.location;
+          if (!loc) { reject(new Error(`Redirect with no Location (HTTP ${res.statusCode})`)); return; }
+          res.resume();
+          doRequest(loc, redirects + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve()));
+        file.on('error', (e) => { fs.unlink(zipPath, () => {}); reject(e); });
+      });
+      req.on('error',   (e) => { fs.unlink(zipPath, () => {}); reject(e); });
+      req.on('timeout', ()  => { req.destroy(); reject(new Error('Download timed out after 60s')); });
+    };
+
+    doRequest(GADM_URL);
+  });
+
+  execSync(`unzip -o "${zipPath}" "${INSIDE_ZIP}" -d "${gadmDir}"`, { stdio: 'inherit' });
+  fs.renameSync(path.join(gadmDir, INSIDE_ZIP), finalPath);
+  fs.unlinkSync(zipPath);
+  console.log('[autoSeed] GADM zip downloaded and extracted');
+}
+
+async function loadGadmIntoDb(gadmPath: string): Promise<void> {
+  const geojson  = JSON.parse(fs.readFileSync(gadmPath, 'utf8'));
+  const features = geojson.features as any[];
+  const client   = await pool.connect();
+  let matched = 0, unmatched = 0;
+
+  try {
+    await client.query('BEGIN');
+    for (const feature of features) {
+      const props  = feature.properties;
+      const mName  = props.NAME_2 || props.name || '';
+      const dName  = props.NAME_1 || props.department || '';
+      if (!feature.geometry) { unmatched++; continue; }
+
+      const result = await client.query(
+        `UPDATE municipios
+         SET geometry = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+             centroid = ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326))
+         WHERE department ILIKE $2
+           AND (name ILIKE $3 OR unaccent(name) ILIKE unaccent($3))
+         RETURNING id`,
+        [JSON.stringify(feature.geometry), `%${dName}%`, `%${mName}%`]
+      );
+      result.rowCount && result.rowCount > 0 ? matched++ : unmatched++;
+    }
+    await client.query('COMMIT');
+    console.log(`[autoSeed] GADM geometries: ${matched} matched, ${unmatched} unmatched`);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function autoSeedIfEmpty(): Promise<void> {
   await migratePoiCacheSource();        // ensure source column exists for Google Places inserts
   await seedMunicipios();
   await seedSocioeconomicIndicators();  // department-level poverty + remittance baseline
   await seedMunicipioDetail();          // municipio-specific overrides (poverty + area_km2)
+  await seedGadmGeometries();           // GADM polygon boundaries (auto-download if missing)
   await seedStoresAndCompetitors();     // fetches from OSM with static fallback
   await migrateCalibrationWeights();    // bump socioeconomic weight to match real data quality
   await seedNtlSettlements();           // VIIRS nighttime lights sub-municipio settlement clusters
