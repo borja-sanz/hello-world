@@ -236,6 +236,8 @@ const App: React.FC = () => {
   // ── Build VIIRS fallback nuclei ───────────────────────────────────────────
   const handleBuildViirsFallbackNuclei = useCallback(async () => {
     setBuildingViirsFallback(true);
+    // Enable the Zonas layer so results are visible as soon as they load
+    setLayers(l => ({ ...l, poiNuclei: true }));
     try {
       await buildViirsFallbackNuclei();
       // Poll until viirs_fallback rows appear in the nuclei response
@@ -246,6 +248,10 @@ const App: React.FC = () => {
             setPoiNuclei(result.nuclei);
             setBuildingViirsFallback(false);
             return;
+          }
+          // On last attempt, refresh whatever is in the table (build may have found 0)
+          if (attempts === 0) {
+            setPoiNuclei(result.nuclei);
           }
         } catch { /* keep polling */ }
         if (attempts > 0) setTimeout(() => poll(attempts - 1), 15_000);

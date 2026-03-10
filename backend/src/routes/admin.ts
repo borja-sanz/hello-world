@@ -1117,7 +1117,12 @@ router.post('/build-viirs-fallback-nuclei', async (_req: Request, res: Response)
     // Remove stale fallback rows from any previous run
     await pool.query(`DELETE FROM poi_nuclei WHERE source = 'viirs_fallback'`);
 
-    // Build and insert fallback nuclei in one CTE query
+    // Build and insert fallback nuclei in one CTE query.
+    // Perf notes:
+    //  - JOIN on municipio_id (already set by buildViirsClusters) replaces the
+    //    expensive LATERAL KNN query against centroid geometry.
+    //  - NOT EXISTS uses arithmetic squared-degree distance (~0.045° ≈ 5 km at 15°N)
+    //    instead of ST_DWithin(::geography) which builds geometry on every row.
     await pool.query(`
       WITH candidates AS (
         -- VIIRS clusters that have no real poi_dbscan nucleus within 5 km
@@ -1129,22 +1134,16 @@ router.post('/build-viirs-fallback-nuclei', async (_req: Request, res: Response)
           mun.name       AS municipio_name,
           mun.department
         FROM ntl_settlements ns
-        CROSS JOIN LATERAL (
-          SELECT name, department FROM municipios
-          WHERE centroid IS NOT NULL
-          ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(ns.lng, ns.lat), 4326)
-          LIMIT 1
-        ) mun
+        JOIN municipios mun ON mun.id = ns.municipio_id
         WHERE ns.ntl_source = 'viirs_raster_2023'
           AND ns.radiance_ntl IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM poi_nuclei pn
             WHERE COALESCE(pn.source, 'poi_dbscan') = 'poi_dbscan'
-              AND ST_DWithin(
-                ST_SetSRID(ST_MakePoint(pn.lng, pn.lat), 4326)::geography,
-                ST_SetSRID(ST_MakePoint(ns.lng, ns.lat), 4326)::geography,
-                5000
-              )
+              AND ABS(pn.lat::float - ns.lat::float) < 0.045
+              AND ABS(pn.lng::float - ns.lng::float) < 0.045
+              AND (pn.lat::float - ns.lat::float)^2
+                + (pn.lng::float - ns.lng::float)^2 < 0.002025
           )
       ),
       enriched AS (
