@@ -594,7 +594,10 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
            WHERE m.centroid IS NOT NULL
            ORDER BY m.centroid <-> ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)
            LIMIT 1
-         )) FROM stores s WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL)             AS covered_municipios
+         )) FROM stores s WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL)             AS covered_municipios,
+        (SELECT COUNT(*) FROM ntl_settlements)                                        AS ntl_settlement_count,
+        (SELECT COUNT(*) FROM ntl_settlements WHERE ntl_source = 'viirs_2023')        AS ntl_viirs_count,
+        (SELECT COUNT(*) FROM ntl_settlements WHERE ntl_source != 'viirs_2023')       AS ntl_synthetic_count
     `);
     res.json(result.rows[0]);
   } catch (err) {

@@ -622,6 +622,7 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
                     ['POIs (Google)',          stats.google_poi_count ?? 0],
                     ['Mercados informales',   stats.mercado_count ?? 0],
                     ['Tiempos de viaje',      `${stats.drive_time_coverage ?? 0}/${stats.municipio_count ?? 0}`],
+                    ['VIIRS real',            `${stats.ntl_viirs_count ?? 0}/${stats.ntl_settlement_count ?? 0}`],
                   ] as [string, string | number][]).map(([label, val]) => (
                     <div key={label}
                          className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
