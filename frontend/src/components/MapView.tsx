@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import 'leaflet.markercluster';
 import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown, PoiNucleus, CompetitorGap } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
@@ -128,7 +131,7 @@ const MapView: React.FC<MapViewProps> = ({
   const containerRef   = useRef<HTMLDivElement>(null);
   const layersRef      = useRef<{
     stores:          L.LayerGroup;
-    competitors:     L.LayerGroup;
+    competitors:     L.MarkerClusterGroup;
     opportunities:   L.LayerGroup;
     tradeArea:       L.LayerGroup;
     ntl:             L.LayerGroup;
@@ -154,7 +157,28 @@ const MapView: React.FC<MapViewProps> = ({
 
     const groups = {
       stores:         L.layerGroup().addTo(map),
-      competitors:    L.layerGroup().addTo(map),
+      competitors:    L.markerClusterGroup({
+        maxClusterRadius: 40,        // px — tighter clusters so individual dots appear sooner
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+        spiderfyOnMaxZoom: true,
+        iconCreateFunction(cluster) {
+          const count = cluster.getChildCount();
+          const size  = count >= 100 ? 36 : count >= 20 ? 30 : 24;
+          return L.divIcon({
+            html: `<div style="
+              width:${size}px;height:${size}px;border-radius:50%;
+              background:#ef4444;border:2px solid white;
+              box-shadow:0 1px 4px rgba(0,0,0,.5);
+              display:flex;align-items:center;justify-content:center;
+              font-size:${count >= 100 ? 10 : 11}px;font-weight:700;color:white;
+              font-family:sans-serif;line-height:1;">${count}</div>`,
+            className: '',
+            iconSize:   [size, size],
+            iconAnchor: [size / 2, size / 2],
+          });
+        },
+      }).addTo(map),
       opportunities:  L.layerGroup().addTo(map),
       tradeArea:      L.layerGroup().addTo(map),
       ntl:            L.layerGroup().addTo(map),
