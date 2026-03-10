@@ -323,4 +323,15 @@ export const loadViirs = async (): Promise<{ message: string; updated: number; s
   return data;
 };
 
+export const buildViirsSettlements = async (): Promise<{
+  message: string;
+  inserted: number;
+  skipped_noise: number;
+  clusters_found: number;
+  pixel_area_km2: number;
+}> => {
+  const { data } = await api.post('/api/admin/build-viirs-settlements');
+  return data;
+};
+
 export default api;

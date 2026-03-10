@@ -9,6 +9,7 @@ import { syncAllCompetitors, syncCompetitorChain, COMPETITOR_CHAINS } from '../s
 import { exportPoiCacheSeed, importPoiCacheSeed } from '../scripts/poiSeed';
 import { getRefreshLog } from '../services/googlePoiService';
 import { seedPoiCacheFromOsm } from '../scripts/autoSeed';
+import { buildViirsClusters } from '../scripts/buildViirsClusters';
 import { AppError } from '../middleware/errorHandler';
 import {
   generateAllIsochrones,
@@ -748,6 +749,61 @@ router.post('/load-viirs', async (req: Request, res: Response, next: NextFunctio
       size    : { width, height },
       updated,
       skipped,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/admin/build-viirs-settlements
+ *
+ * Regenerates all NTL settlements directly from the VIIRS raster using
+ * connected-component clustering. Produces 500–2000+ settlements instead
+ * of the ~98 from OSM, including unnamed rural clusters OSM doesn't capture.
+ *
+ * Guatemala City admin_zones (ntl_source='admin_zones') are always preserved.
+ * All other existing settlements are replaced.
+ *
+ * Requires the GeoTIFF at data/viirs_ntl_guatemala_2023.tif (already in repo).
+ * Header: Authorization: Bearer <ADMIN_SECRET>
+ */
+router.post('/build-viirs-settlements', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const secret = process.env.ADMIN_SECRET;
+    const auth   = req.headers.authorization;
+    if (secret && auth !== `Bearer ${secret}`) {
+      throw new AppError(401, 'Unauthorized — provide Authorization: Bearer <ADMIN_SECRET>');
+    }
+
+    // Resolve TIF path — same candidate list as load-viirs
+    const candidates: string[] = [
+      req.body?.tif_path,
+      path.resolve(process.cwd(), 'data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(process.cwd(), '..', 'data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(__dirname, '../../../../data', 'viirs_ntl_guatemala_2023.tif'),
+      path.resolve(__dirname, '../../../data', 'viirs_ntl_guatemala_2023.tif'),
+    ].filter(Boolean) as string[];
+
+    const tifPath = candidates.find(p => fs.existsSync(p));
+    if (!tifPath) {
+      throw new AppError(404,
+        `GeoTIFF not found. Tried: ${candidates.join(', ')}. ` +
+        `Pass { "tif_path": "/absolute/path" } in request body to override.`
+      );
+    }
+
+    const result = await buildViirsClusters(tifPath);
+
+    res.json({
+      message        : `${result.inserted} asentamientos generados desde VIIRS (${result.skippedNoise} clusters de ruido descartados)`,
+      inserted       : result.inserted,
+      skipped_noise  : result.skippedNoise,
+      clusters_found : result.clustersFound,
+      tif_path       : result.tifPath,
+      extent         : result.extent,
+      size           : result.size,
+      pixel_area_km2 : result.pixelAreaKm2,
     });
   } catch (err) {
     next(err);

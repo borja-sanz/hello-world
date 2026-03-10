@@ -9,6 +9,7 @@ import {
   loadPoiSeed,
   refreshDepartmentPois,
   loadViirs,
+  buildViirsSettlements,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -133,6 +134,15 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
       const r = await loadViirs();
       setMsg(`✅ VIIRS cargado: ${r.updated} asentamientos actualizados, ${r.skipped} fuera de rango`);
     } catch { setMsg('❌ Error al cargar VIIRS — verifica que el archivo .tif esté en data/'); }
+  };
+
+  const handleBuildViirsSettlements = async () => {
+    try {
+      setMsg('⏳ Generando asentamientos desde raster VIIRS… (puede tardar ~60s)');
+      const r = await buildViirsSettlements();
+      setMsg(`✅ ${r.inserted} asentamientos generados (${r.clusters_found} clusters encontrados, ${r.skipped_noise} ruido descartado, ${r.pixel_area_km2.toFixed(2)} km²/pixel)`);
+      load(); // refresh stats panel
+    } catch { setMsg('❌ Error al generar asentamientos VIIRS — verifica que el archivo .tif esté en data/'); }
   };
 
   const handleRefreshDepartment = async () => {
@@ -727,14 +737,21 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
                   🌙 Luces Nocturnas VIIRS
                 </p>
                 <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                  Actualiza los asentamientos sub-municipio con radiancia real del satélite VIIRS DNB 2023.
-                  El archivo GeoTIFF ya está incluido en el repositorio — no requiere descarga ni API key.
+                  Genera asentamientos sub-municipio directamente desde el raster VIIRS por clustering de píxeles brillantes.
+                  Sin dependencia de OSM — produce 500–2000+ asentamientos vs ~98 del método anterior.
+                  El archivo GeoTIFF ya está incluido en el repositorio.
                 </p>
                 <button
-                  onClick={handleLoadViirs}
+                  onClick={handleBuildViirsSettlements}
                   className="w-full py-2 px-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium transition-colors text-left"
                 >
-                  Cargar datos VIIRS reales (~30s, sin costo)
+                  Regenerar asentamientos desde raster VIIRS (~60s, sin costo)
+                </button>
+                <button
+                  onClick={handleLoadViirs}
+                  className="w-full py-2 px-3 rounded-lg bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 text-xs font-medium transition-colors text-left"
+                >
+                  Actualizar radiancia en asentamientos existentes (~30s)
                 </button>
               </div>
 
