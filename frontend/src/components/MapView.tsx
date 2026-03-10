@@ -136,7 +136,7 @@ const MapView: React.FC<MapViewProps> = ({
     tradeArea:       L.LayerGroup;
     ntl:             L.LayerGroup;
     poiClusters:     L.LayerGroup;
-    poiNuclei:       L.LayerGroup;
+    poiNuclei:       L.MarkerClusterGroup;
     competitorGaps:  L.LayerGroup;
   } | null>(null);
 
@@ -204,7 +204,28 @@ const MapView: React.FC<MapViewProps> = ({
       tradeArea:      L.layerGroup().addTo(map),
       ntl:            L.layerGroup().addTo(map),
       poiClusters:    L.layerGroup().addTo(map),
-      poiNuclei:      L.layerGroup(),              // off by default
+      poiNuclei:      L.markerClusterGroup({         // off by default
+        maxClusterRadius: 50,
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+        spiderfyOnMaxZoom: true,
+        iconCreateFunction(cluster) {
+          const count = cluster.getChildCount();
+          const size  = count >= 100 ? 36 : count >= 20 ? 30 : 24;
+          return L.divIcon({
+            html: `<div style="
+              width:${size}px;height:${size}px;border-radius:50%;
+              background:#f97316;border:2px solid white;
+              box-shadow:0 1px 4px rgba(0,0,0,.5);
+              display:flex;align-items:center;justify-content:center;
+              font-size:${count >= 100 ? 10 : 11}px;font-weight:700;color:white;
+              font-family:sans-serif;line-height:1;">${count}</div>`,
+            className: '',
+            iconSize:   [size, size],
+            iconAnchor: [size / 2, size / 2],
+          });
+        },
+      }),
       competitorGaps: L.layerGroup(),              // off by default
     };
 
