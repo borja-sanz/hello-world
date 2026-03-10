@@ -142,7 +142,11 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
       const r = await buildViirsSettlements();
       setMsg(`✅ ${r.inserted} asentamientos generados (${r.clusters_found} clusters encontrados, ${r.skipped_noise} ruido descartado, ${r.pixel_area_km2.toFixed(2)} km²/pixel)`);
       load(); // refresh stats panel
-    } catch { setMsg('❌ Error al generar asentamientos VIIRS — verifica que el archivo .tif esté en data/'); }
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail ?? '';
+      const msg    = err?.response?.data?.error ?? err?.message ?? String(err);
+      setMsg(`❌ VIIRS error: ${msg}${detail ? ` — ${detail}` : ''}`);
+    }
   };
 
   const handleRefreshDepartment = async () => {
