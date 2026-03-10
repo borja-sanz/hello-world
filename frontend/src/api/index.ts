@@ -337,6 +337,30 @@ export const fetchSiteSelection = async (
   return data;
 };
 
+// ─── Isochrones ───────────────────────────────────────────────────────────────
+
+export const generateIsochrones = async (
+  mapboxToken?: string,
+  force = false,
+): Promise<{ message: string; status: string }> => {
+  const { data } = await api.post(
+    '/api/admin/isochrones/generate',
+    { mapbox_token: mapboxToken, force },
+    { timeout: 180_000 }, // generation takes ~85s for all 254 municipios
+  );
+  return data;
+};
+
+export const fetchIsochroneStatus = async (): Promise<{
+  total_municipios: number;
+  covered: number;
+  full_coverage: number;
+  last_fetched: string | null;
+}> => {
+  const { data } = await api.get('/api/admin/isochrones/status');
+  return data;
+};
+
 export const buildViirsSettlements = async (): Promise<{
   message: string;
   inserted: number;

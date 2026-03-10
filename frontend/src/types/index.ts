@@ -70,6 +70,10 @@ export interface TradeAreaRing {
   our_stores: { name: string; format: string; dist_km: number }[];
   competitors: { name: string; chain: string; dist_km: number }[];
   saturation_index: number;
+  /** Whether this ring was built from a drive-time isochrone or a straight-line circle */
+  type: 'isochrone' | 'circle';
+  /** Drive-time minutes for isochrone rings (15 or 30); absent for circle rings */
+  contour_minutes?: number;
 }
 
 export interface PoiBreakdown {
@@ -88,6 +92,7 @@ export interface PoiBreakdown {
 
 export interface TradeAreaAnalysis {
   center: { lat: number; lng: number };
+  municipio_id: number | null;
   municipio_name: string | null;
   municipio_population: number | null;
   score: number;
@@ -97,6 +102,10 @@ export interface TradeAreaAnalysis {
   reasoning: string;
   rings: TradeAreaRing[];
   poi_breakdown: PoiBreakdown;
+  /** True when drive-time isochrone polygons were used for at least one ring */
+  isochrone_available: boolean;
+  /** GeoJSON of the 30-min driving isochrone polygon for map display; null when not generated yet */
+  isochrone_geojson: object | null;
 }
 
 export interface PoiCluster {

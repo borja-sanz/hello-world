@@ -1,6 +1,6 @@
 import React from 'react';
 import ScoreBadge from './ScoreBadge';
-import type { TradeAreaAnalysis, PoiBreakdown, FactorScores } from '../types';
+import type { TradeAreaAnalysis, TradeAreaRing, PoiBreakdown, FactorScores } from '../types';
 
 const FACTOR_LABELS: { key: keyof FactorScores; label: string; color: string; weight: string }[] = [
   { key: 'population',    label: 'Población',      color: 'bg-blue-500',   weight: '28%' },
@@ -24,13 +24,21 @@ const POI_LABELS: { key: keyof PoiBreakdown; label: string; icon: string; weight
   { key: 'hardware',       label: 'Ferretería',       icon: '🔧', weight: 1.0 },
 ];
 
+/** Returns the ring header label: drive-time for isochrone rings, radius for circles */
+function ringLabel(ring: TradeAreaRing): string {
+  if (ring.type === 'isochrone' && ring.contour_minutes !== undefined) {
+    return `${ring.contour_minutes} min manejo`;
+  }
+  return `Radio ${ring.radius_km} km`;
+}
+
 interface Props {
   analysis: TradeAreaAnalysis;
   onClose:  () => void;
 }
 
 const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
-  const { rings, score, recommendation, suggested_format, reasoning, municipio_name, poi_breakdown } = analysis;
+  const { rings, score, recommendation, suggested_format, reasoning, municipio_name, poi_breakdown, isochrone_available } = analysis;
   const presentPois = poi_breakdown
     ? POI_LABELS.filter(p => poi_breakdown[p.key] > 0)
     : [];
@@ -40,8 +48,16 @@ const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
         <div>
-          <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+          <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
             Análisis de Área de Influencia
+            {isochrone_available && (
+              <span
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                title="Los anillos de influencia están basados en tiempo de manejo real (Mapbox)"
+              >
+                tiempo real
+              </span>
+            )}
           </div>
           {municipio_name && (
             <div className="text-xs text-gray-400">{municipio_name}</div>
@@ -125,7 +141,7 @@ const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
                className="p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                Radio {ring.radius_km}km
+                {ringLabel(ring)}
               </span>
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                 ring.saturation_index < 0.5 ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' :

@@ -38,6 +38,10 @@ export interface TradeAreaRing {
   our_stores: { name: string; format: string; dist_km: number }[];
   competitors: { name: string; chain: string; dist_km: number }[];
   saturation_index: number;
+  /** Whether this ring was built from a drive-time isochrone or a straight-line circle */
+  type: 'isochrone' | 'circle';
+  /** Drive-time minutes for isochrone rings (15 or 30); absent for circle rings */
+  contour_minutes?: number;
 }
 
 export interface OpportunityScore {
@@ -69,10 +73,15 @@ export interface PoiBreakdown {
 
 export interface TradeAreaAnalysis extends OpportunityScore {
   center: { lat: number; lng: number };
+  municipio_id: number | null;
   municipio_name: string | null;
   municipio_population: number | null;
   rings: TradeAreaRing[];
   poi_breakdown: PoiBreakdown;
+  /** True when drive-time isochrone polygons were used for at least one ring */
+  isochrone_available: boolean;
+  /** GeoJSON of the 30-min driving isochrone polygon for map display; null when not generated yet */
+  isochrone_geojson: object | null;
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -975,46 +984,104 @@ export async function scorePoint(
 // ─── Trade area analysis ──────────────────────────────────────────────────────
 
 async function buildRing(
-  lat: number, lng: number, radiusKm: number
+  lat: number,
+  lng: number,
+  radiusKm: number,
+  municipioId: number | null = null,
+  isoContours: Set<number> = new Set(),
+  isoContourMinutes?: number,
 ): Promise<TradeAreaRing> {
-  const [popResult, ourResult, compResult] = await Promise.all([
-    pool.query(
-      `SELECT COALESCE(SUM(population),0) AS total FROM municipios
-       WHERE population IS NOT NULL AND centroid IS NOT NULL
-         AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, $3)`,
-      [lat, lng, radiusKm * 1000]
-    ),
-    pool.query(
-      `SELECT name, format,
-              ROUND(ST_Distance(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
-       FROM stores WHERE geometry IS NOT NULL
-         AND ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,$3)
-       ORDER BY dist_km`,
-      [lat, lng, radiusKm * 1000]
-    ),
-    pool.query(
-      `SELECT name, chain,
-              ROUND(ST_Distance(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
-       FROM competitors WHERE geometry IS NOT NULL
-         AND ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,$3)
-       ORDER BY dist_km`,
-      [lat, lng, radiusKm * 1000]
-    ),
-  ]);
+  // Use isochrone polygon when the requested contour is available; otherwise
+  // fall back to the straight-line radius circle (original behaviour).
+  const useIsochrone =
+    isoContourMinutes !== undefined &&
+    municipioId !== null &&
+    isoContours.has(isoContourMinutes);
 
-  const pop          = parseInt(popResult.rows[0]?.total ?? '0');
-  const totalStores  = ourResult.rows.length + compResult.rows.length;
+  let popResult: any;
+  let ourResult: any;
+  let compResult: any;
+
+  if (useIsochrone) {
+    // ── Isochrone path: ST_Intersects against the stored drive-time polygon ──
+    const isoSub = `(SELECT geometry FROM municipio_isochrones
+                      WHERE municipio_id = $1
+                        AND profile = 'mapbox/driving'
+                        AND contour_minutes = $2
+                      LIMIT 1)`;
+
+    [popResult, ourResult, compResult] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(population), 0) AS total
+         FROM municipios
+         WHERE population IS NOT NULL AND centroid IS NOT NULL
+           AND ST_Intersects(centroid, ${isoSub})`,
+        [municipioId, isoContourMinutes]
+      ),
+      pool.query(
+        `SELECT name, format,
+                ROUND(ST_Distance(geometry::geography,
+                  ST_SetSRID(ST_MakePoint($3,$4),4326)::geography)/1000) AS dist_km
+         FROM stores
+         WHERE geometry IS NOT NULL
+           AND ST_Intersects(geometry, ${isoSub})
+         ORDER BY dist_km`,
+        [municipioId, isoContourMinutes, lng, lat]
+      ),
+      pool.query(
+        `SELECT name, chain,
+                ROUND(ST_Distance(geometry::geography,
+                  ST_SetSRID(ST_MakePoint($3,$4),4326)::geography)/1000) AS dist_km
+         FROM competitors
+         WHERE geometry IS NOT NULL
+           AND ST_Intersects(geometry, ${isoSub})
+         ORDER BY dist_km`,
+        [municipioId, isoContourMinutes, lng, lat]
+      ),
+    ]);
+  } else {
+    // ── Circle fallback: original ST_DWithin behaviour ────────────────────
+    [popResult, ourResult, compResult] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(population),0) AS total FROM municipios
+         WHERE population IS NOT NULL AND centroid IS NOT NULL
+           AND ST_DWithin(centroid::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, $3)`,
+        [lat, lng, radiusKm * 1000]
+      ),
+      pool.query(
+        `SELECT name, format,
+                ROUND(ST_Distance(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
+         FROM stores WHERE geometry IS NOT NULL
+           AND ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,$3)
+         ORDER BY dist_km`,
+        [lat, lng, radiusKm * 1000]
+      ),
+      pool.query(
+        `SELECT name, chain,
+                ROUND(ST_Distance(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
+         FROM competitors WHERE geometry IS NOT NULL
+           AND ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,$3)
+         ORDER BY dist_km`,
+        [lat, lng, radiusKm * 1000]
+      ),
+    ]);
+  }
+
+  const pop         = parseInt(popResult.rows[0]?.total ?? '0');
+  const totalStores = ourResult.rows.length + compResult.rows.length;
   // Saturation: how many stores per DF-threshold population unit
-  const saturation   = pop > 0 ? Math.round((totalStores / (pop / 24_000)) * 100) / 100 : 0;
+  const saturation  = pop > 0 ? Math.round((totalStores / (pop / 24_000)) * 100) / 100 : 0;
 
   return {
-    radius_km:       radiusKm,
-    population:      pop,
-    our_store_count: ourResult.rows.length,
+    radius_km:        radiusKm,
+    population:       pop,
+    our_store_count:  ourResult.rows.length,
     competitor_count: compResult.rows.length,
-    our_stores:      ourResult.rows,
-    competitors:     compResult.rows,
+    our_stores:       ourResult.rows,
+    competitors:      compResult.rows,
     saturation_index: saturation,
+    type:             useIsochrone ? 'isochrone' : 'circle',
+    contour_minutes:  useIsochrone ? isoContourMinutes : undefined,
   };
 }
 
@@ -1067,25 +1134,72 @@ export async function analyzeTradeArea(
   lat: number,
   lng: number
 ): Promise<TradeAreaAnalysis> {
-  const [cfg, score, ring3, ring5, ring10, poi_breakdown] = await Promise.all([
+  // ── Step 1: resolve nearest municipio + pre-load isochrone availability ──
+  // This single lookup tells us whether to use polygon or circle paths for rings.
+  const municipioRow = await pool.query<{ id: number }>(
+    `SELECT id FROM municipios
+     WHERE centroid IS NOT NULL
+     ORDER BY centroid <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)
+     LIMIT 1`,
+    [lat, lng]
+  );
+  const municipioId = municipioRow.rows[0]?.id ?? null;
+
+  const isoContours = new Set<number>();
+  let isoGeojson30: object | null = null;
+
+  if (municipioId !== null) {
+    // Which contours are available for this municipio?
+    const isoCheck = await pool.query<{ contour_minutes: number }>(
+      `SELECT contour_minutes FROM municipio_isochrones
+       WHERE municipio_id = $1 AND profile = 'mapbox/driving'`,
+      [municipioId]
+    );
+    for (const row of isoCheck.rows) isoContours.add(row.contour_minutes);
+
+    // Fetch the 30-min polygon GeoJSON for map display (if available)
+    if (isoContours.has(30)) {
+      const geoRes = await pool.query<{ geojson: object }>(
+        `SELECT ST_AsGeoJSON(geometry)::jsonb AS geojson
+         FROM municipio_isochrones
+         WHERE municipio_id = $1
+           AND profile = 'mapbox/driving'
+           AND contour_minutes = 30
+         LIMIT 1`,
+        [municipioId]
+      );
+      isoGeojson30 = geoRes.rows[0]?.geojson ?? null;
+    }
+  }
+
+  // ── Step 2: run all heavy operations in parallel ──────────────────────────
+  // Ring mapping:
+  //   ring1 = 3 km circle  — walkability, always Euclidean
+  //   ring2 = 15-min iso   — primary drive catchment (falls back to 5 km circle)
+  //   ring3 = 30-min iso   — secondary catchment    (falls back to 10 km circle)
+  const [cfg, ring1, ring2, ring3, poi_breakdown] = await Promise.all([
     loadCalibrationConfig(),
-    scorePoint(lat, lng),
-    buildRing(lat, lng, 3),
-    buildRing(lat, lng, 5),
-    buildRing(lat, lng, 10),
+    buildRing(lat, lng, 3),                                          // always circle
+    buildRing(lat, lng, 5,  municipioId, isoContours, 15),          // iso or 5km
+    buildRing(lat, lng, 10, municipioId, isoContours, 30),          // iso or 10km
     fetchPoiBreakdown(lat, lng),
   ]);
 
-  // Re-score using the already-loaded config to avoid double DB hit
+  // Score the point using the already-loaded config
   const refined = await scorePoint(lat, lng, cfg);
+
+  const isochroneAvailable = isoContours.size > 0;
 
   return {
     ...refined,
-    center: { lat, lng },
+    center:               { lat, lng },
+    municipio_id:         municipioId,
     municipio_name:       refined.municipio_name ?? null,
-    municipio_population: ring10.population,
-    rings: [ring3, ring5, ring10],
+    municipio_population: ring3.population,
+    rings:                [ring1, ring2, ring3],
     poi_breakdown,
+    isochrone_available:  isochroneAvailable,
+    isochrone_geojson:    isoGeojson30,
   };
 }
 

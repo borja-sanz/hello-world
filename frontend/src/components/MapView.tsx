@@ -693,19 +693,56 @@ const MapView: React.FC<MapViewProps> = ({
     if (!tradeArea) return;
 
     const { lat, lng } = tradeArea.center;
-    const colors = ['#3b82f6', '#8b5cf6', '#ec4899'];
-    const radii  = [3000, 5000, 10000];
 
-    radii.forEach((r, i) => {
+    // Ring 1 (3 km walkability) — always a circle, too small for drive-time
+    L.circle([lat, lng], {
+      radius:      3000,
+      color:       '#3b82f6',
+      fillColor:   '#3b82f6',
+      fillOpacity: 0.04,
+      dashArray:   '6 4',
+      weight:      2,
+    }).addTo(group);
+
+    if (tradeArea.isochrone_geojson) {
+      // ── Isochrone path: render the 30-min drive-time polygon ─────────────
+      // Replaces the 5 km and 10 km dashed circles with the actual road-network
+      // catchment area — far more realistic in Guatemala's mountainous terrain.
+      L.geoJSON(tradeArea.isochrone_geojson as any, {
+        style: {
+          color:       '#8b5cf6',
+          fillColor:   '#8b5cf6',
+          fillOpacity: 0.06,
+          dashArray:   '8 5',
+          weight:      2.5,
+        },
+      })
+        .bindTooltip('Área de influencia (30 min manejo)', {
+          permanent: false,
+          sticky: true,
+          className: 'leaflet-tooltip-isochrone',
+        })
+        .addTo(group);
+    } else {
+      // ── Circle fallback: draw rings 2 and 3 when no isochrone data yet ───
       L.circle([lat, lng], {
-        radius:      r,
-        color:       colors[i],
-        fillColor:   colors[i],
+        radius:      5000,
+        color:       '#8b5cf6',
+        fillColor:   '#8b5cf6',
         fillOpacity: 0.04,
         dashArray:   '6 4',
         weight:      2,
       }).addTo(group);
-    });
+
+      L.circle([lat, lng], {
+        radius:      10000,
+        color:       '#ec4899',
+        fillColor:   '#ec4899',
+        fillOpacity: 0.04,
+        dashArray:   '6 4',
+        weight:      2,
+      }).addTo(group);
+    }
 
     // Center marker
     L.circleMarker([lat, lng], {

@@ -10,6 +10,8 @@ import {
   refreshDepartmentPois,
   loadViirs,
   buildViirsSettlements,
+  generateIsochrones,
+  fetchIsochroneStatus,
 } from '../api';
 import type { CalibrationConfig } from '../types';
 
@@ -75,22 +77,33 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
     }, 2000);
   };
 
-  // Clean up poll on unmount
+  // Clean up polls on unmount
   React.useEffect(() => () => {
-    if (progressPollRef.current) clearInterval(progressPollRef.current);
+    if (progressPollRef.current)   clearInterval(progressPollRef.current);
+    if (isochronePollRef.current)  clearInterval(isochronePollRef.current);
   }, []);
 
   const [googleApiKey, setGoogleApiKey] = useState('');
 
+  // Isochrone state
+  const [mapboxToken,       setMapboxToken]       = useState('');
+  const [isochroneStatus,   setIsochroneStatus]   = useState<{
+    total_municipios: number; covered: number; full_coverage: number; last_fetched: string | null;
+  } | null>(null);
+  const [isochroneGenerating, setIsochroneGenerating] = useState(false);
+  const isochronePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const load = useCallback(async () => {
     try {
-      const [c, s, ps, ss] = await Promise.all([
+      const [c, s, ps, ss, iso] = await Promise.all([
         fetchCalibrationConfig(),
         fetchAdminStats(),
         fetchPoiStatus().catch(() => null),
         fetchStoreSummary().catch(() => null),
+        fetchIsochroneStatus().catch(() => null),
       ]);
       setConfig(c); setStats(s); setPoiStatus(ps); setStoreSummary(ss);
+      if (iso) setIsochroneStatus(iso);
     } catch {
       setMsg('Error cargando configuración');
     }
@@ -197,6 +210,37 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
       await refreshAllGooglePois(googleApiKey.trim());
       startProgressPolling();
     } catch { setMsg('❌ Error'); }
+  };
+
+  const handleGenerateIsochrones = async () => {
+    if (!mapboxToken.trim()) {
+      setMsg('Ingresa tu Mapbox Token (pk.ey…) para generar isocrónicas');
+      return;
+    }
+    if (!confirm('Generará isocrónicas de manejo (15/30/45 min) para todos los municipios via Mapbox API (~254 requests, dentro del free tier). ¿Continuar?')) return;
+    try {
+      setIsochroneGenerating(true);
+      setMsg('⏳ Generando isocrónicas… (~85 s)');
+      await generateIsochrones(mapboxToken.trim());
+      setMsg('✅ Generación iniciada — actualizando cobertura…');
+      // Poll for coverage update every 5 s
+      if (isochronePollRef.current) clearInterval(isochronePollRef.current);
+      isochronePollRef.current = setInterval(async () => {
+        try {
+          const iso = await fetchIsochroneStatus();
+          setIsochroneStatus(iso);
+          if (iso.full_coverage >= iso.total_municipios || iso.full_coverage > 0) {
+            clearInterval(isochronePollRef.current!);
+            isochronePollRef.current = null;
+            setIsochroneGenerating(false);
+            setMsg(`✅ Isocrónicas listas: ${iso.full_coverage}/${iso.total_municipios} municipios con cobertura completa`);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 5000);
+    } catch (err: any) {
+      setIsochroneGenerating(false);
+      setMsg(`❌ Error: ${err?.response?.data?.error ?? err?.message ?? 'Error desconocido'}`);
+    }
   };
 
   const handleSavePoiSeed = async () => {
@@ -733,6 +777,68 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
                     Último cálculo: {new Date(stats.last_scored_at).toLocaleString('es-GT')}
                   </p>
                 )}
+              </div>
+
+              {/* Isochrone generation */}
+              <div className="border border-purple-200 dark:border-purple-800 rounded-lg p-3 space-y-2 bg-purple-50 dark:bg-purple-900/10">
+                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">
+                  🗺️ Isocrónicas de Manejo (Mapbox)
+                </p>
+                <p className="text-xs text-purple-700 dark:text-purple-400">
+                  Genera polígonos reales de tiempo de manejo (15/30/45 min) para cada municipio.
+                  Reemplaza los círculos de distancia en el mapa con el área de influencia real según las carreteras.
+                  ~254 requests — dentro del free tier de Mapbox.
+                </p>
+                {/* Coverage bar */}
+                {isochroneStatus && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-purple-700 dark:text-purple-400">
+                      <span>Cobertura completa</span>
+                      <span className="font-mono font-semibold">
+                        {isochroneStatus.full_coverage}/{isochroneStatus.total_municipios} municipios
+                      </span>
+                    </div>
+                    <div className="h-2 bg-purple-200 dark:bg-purple-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-purple-500 rounded-full transition-all duration-500"
+                        style={{
+                          width: isochroneStatus.total_municipios > 0
+                            ? `${Math.round((isochroneStatus.full_coverage / isochroneStatus.total_municipios) * 100)}%`
+                            : '0%',
+                        }}
+                      />
+                    </div>
+                    {isochroneStatus.last_fetched && (
+                      <p className="text-[10px] text-purple-500 dark:text-purple-500">
+                        Última generación: {new Date(isochroneStatus.last_fetched).toLocaleString('es-GT')}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <label className="block text-xs font-medium text-purple-700 dark:text-purple-400">
+                  Mapbox Token (pk.ey…)
+                </label>
+                <input
+                  type="password"
+                  placeholder="pk.eyJ1Ij..."
+                  value={mapboxToken}
+                  onChange={e => setMapboxToken(e.target.value)}
+                  className="w-full border border-purple-300 dark:border-purple-700 rounded-lg px-3 py-2 text-sm
+                             bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 font-mono"
+                />
+                <p className="text-[10px] text-purple-500 dark:text-purple-500">
+                  Token no se almacena — solo se usa para esta solicitud.
+                  Necesitas una clave pública (pk.) de Mapbox con acceso a la Isochrone API.
+                </p>
+                <button
+                  onClick={handleGenerateIsochrones}
+                  disabled={isochroneGenerating}
+                  className="w-full py-2 px-3 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-medium transition-colors text-left"
+                >
+                  {isochroneGenerating
+                    ? '⏳ Generando isocrónicas…'
+                    : `🗺️ Generar isocrónicas${isochroneStatus?.full_coverage ? ' (actualizar)' : ' (~85 s, sin costo)'}`}
+                </button>
               </div>
 
               {/* VIIRS nighttime lights */}
