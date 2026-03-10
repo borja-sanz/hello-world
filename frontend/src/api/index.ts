@@ -330,7 +330,7 @@ export const buildViirsSettlements = async (): Promise<{
   clusters_found: number;
   pixel_area_km2: number;
 }> => {
-  const { data } = await api.post('/api/admin/build-viirs-settlements');
+  const { data } = await api.post('/api/admin/build-viirs-settlements', {}, { timeout: 120_000 });
   return data;
 };
 

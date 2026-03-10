@@ -213,31 +213,61 @@ export async function buildViirsClusters(tifPath: string): Promise<BuildResult> 
   try {
     await client.query('BEGIN');
 
+    // Pre-fetch all municipio centroids into JS memory (254 rows).
+    // We assign each cluster to its nearest municipio here in JS instead of
+    // running a PostGIS subquery per INSERT — turns O(N) round-trips into one.
+    const { rows: munRows } = await client.query<{
+      id: number; lat: string; lng: string;
+    }>('SELECT id, lat, lng FROM municipios WHERE lat IS NOT NULL AND lng IS NOT NULL');
+
+    function nearestMunicipioId(clat: number, clng: number): number {
+      let bestId   = munRows[0].id;
+      let bestDist = Infinity;
+      for (const m of munRows) {
+        const dlat = clat - parseFloat(m.lat);
+        const dlng = clng - parseFloat(m.lng);
+        const d    = dlat * dlat + dlng * dlng; // squared — order is all we need
+        if (d < bestDist) { bestDist = d; bestId = m.id; }
+      }
+      return bestId;
+    }
+
     // Remove all non-admin_zones settlements.
     // Guatemala City admin zones (ntl_source='admin_zones') are preserved.
     await client.query(`DELETE FROM ntl_settlements WHERE ntl_source != 'admin_zones'`);
 
-    // Insert each cluster with a temporary name; assign it to the nearest
-    // municipio centroid using PostGIS geography distance.
+    // Single batched INSERT using unnest() — one round-trip regardless of N.
+    const munIds:  number[] = [];
+    const lats:    number[] = [];
+    const lngs:    number[] = [];
+    const rads:    number[] = [];
+    const pops:    number[] = [];
+    const areas:   number[] = [];
+
     for (const s of settlements) {
-      await client.query(
-        `INSERT INTO ntl_settlements
-           (name, municipio_id, lat, lng, radiance_ntl, estimated_pop, area_km2, ntl_source)
-         VALUES (
-           'temp',
-           (SELECT id FROM municipios
-            ORDER BY ST_Distance(
-              centroid::geography,
-              ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
-            )
-            LIMIT 1),
-           $1, $2, $3, $4, $5,
-           'viirs_raster_2023'
-         )`,
-        [s.lat, s.lng, s.radiance, s.estPop, s.areaKm2],
-      );
-      inserted++;
+      munIds.push(nearestMunicipioId(s.lat, s.lng));
+      lats.push(s.lat);
+      lngs.push(s.lng);
+      rads.push(s.radiance);
+      pops.push(s.estPop);
+      areas.push(s.areaKm2);
     }
+
+    await client.query(
+      `INSERT INTO ntl_settlements
+         (name, municipio_id, lat, lng, radiance_ntl, estimated_pop, area_km2, ntl_source)
+       SELECT
+         'temp',
+         unnest($1::int[]),
+         unnest($2::float[]),
+         unnest($3::float[]),
+         unnest($4::float[]),
+         unnest($5::int[]),
+         unnest($6::float[]),
+         'viirs_raster_2023'`,
+      [munIds, lats, lngs, rads, pops, areas],
+    );
+    inserted = settlements.length;
 
     // Rename settlements descriptively:
     //   Municipio with 1 cluster  → "[Municipio name]"
