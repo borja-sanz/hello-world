@@ -107,8 +107,6 @@ async function generateCandidates(
   centroidLng: number,
   areaKm2: number,
 ): Promise<RawCandidate[]> {
-  const radiusM = Math.max(8000, Math.sqrt((areaKm2 || 100) / Math.PI) * 1000 + 5000);
-
   const [viirs, nuclei, gaps] = await Promise.all([
     pool.query(
       `SELECT id::text AS cid, lat::float, lng::float,
@@ -134,12 +132,8 @@ async function generateCandidates(
               nearest_own_store_km::float,
               NULL::int AS competitor_count_3km
        FROM competitor_gaps
-       WHERE ST_DWithin(
-         ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography,
-         ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-         $3
-       )`,
-      [centroidLat, centroidLng, radiusM],
+       WHERE municipio_id = $1`,
+      [municipioId],
     ).catch(() => ({ rows: [] as any[] })),  // competitor_gaps may not exist yet
   ]);
 
