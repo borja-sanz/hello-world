@@ -456,7 +456,10 @@ router.get('/poi-nuclei', async (req: Request, res: Response, next: NextFunction
               cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
               cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
               nearest_own_store_km, competitor_count_1km, competitor_count_3km,
-              opportunity_score
+              opportunity_score,
+              COALESCE(source, 'poi_dbscan') AS source,
+              radiance_ntl,
+              estimated_pop
        FROM poi_nuclei
        WHERE opportunity_score >= $1
        ORDER BY opportunity_score DESC

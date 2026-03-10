@@ -136,6 +136,10 @@ export interface PoiNucleus {
   competitor_count_1km: number;
   competitor_count_3km: number;
   opportunity_score: number;
+  // Added by hybrid VIIRS fallback feature — absent on old DB rows
+  source?: 'poi_dbscan' | 'viirs_fallback';
+  radiance_ntl?: number | null;
+  estimated_pop?: number | null;
 }
 
 export interface CompetitorGap {

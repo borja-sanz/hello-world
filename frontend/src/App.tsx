@@ -8,6 +8,7 @@ import {
   analyzeTradeArea, calculateAllScores,
   fetchNtlSettlements, fetchSubMunicipioScores, fetchPoiClusters,
   fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei, buildCompetitorGaps,
+  buildViirsFallbackNuclei,
   fetchAdminStats,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
@@ -42,6 +43,7 @@ const App: React.FC = () => {
   const [competitorGaps,    setCompetitorGaps]    = useState<CompetitorGap[]>([]);
   const [buildingNuclei,    setBuildingNuclei]    = useState(false);
   const [buildingGaps,      setBuildingGaps]      = useState(false);
+  const [buildingViirsFallback, setBuildingViirsFallback] = useState(false);
   const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
   const [selectedOpp,       setSelectedOpp]       = useState<OpportunityScore | null>(null);
   const [gapFilter,         setGapFilter]         = useState({ high: true, medium: true, low: true });
@@ -228,6 +230,30 @@ const App: React.FC = () => {
       setTimeout(() => poll(8), 10000);
     } catch {
       setBuildingNuclei(false);
+    }
+  }, []);
+
+  // ── Build VIIRS fallback nuclei ───────────────────────────────────────────
+  const handleBuildViirsFallbackNuclei = useCallback(async () => {
+    setBuildingViirsFallback(true);
+    try {
+      await buildViirsFallbackNuclei();
+      // Poll until viirs_fallback rows appear in the nuclei response
+      const poll = async (attempts: number) => {
+        try {
+          const result = await fetchPoiNuclei({ limit: 400 });
+          if (result.nuclei.some(n => n.source === 'viirs_fallback')) {
+            setPoiNuclei(result.nuclei);
+            setBuildingViirsFallback(false);
+            return;
+          }
+        } catch { /* keep polling */ }
+        if (attempts > 0) setTimeout(() => poll(attempts - 1), 15_000);
+        else setBuildingViirsFallback(false);
+      };
+      setTimeout(() => poll(5), 15_000);
+    } catch {
+      setBuildingViirsFallback(false);
     }
   }, []);
 
@@ -430,6 +456,8 @@ const App: React.FC = () => {
           nucleiNotBuilt={nucleiNotBuilt}
           onBuildNuclei={handleBuildNuclei}
           buildingNuclei={buildingNuclei}
+          onBuildViirsFallbackNuclei={handleBuildViirsFallbackNuclei}
+          buildingViirsFallback={buildingViirsFallback}
           onBuildGaps={handleBuildGaps}
           buildingGaps={buildingGaps}
           gapFilter={gapFilter}

@@ -34,10 +34,12 @@ interface Props {
   nucleiCount?:       number;
   gapsCount?:         number;
   nucleiNotBuilt?:    boolean;
-  onBuildNuclei?:     () => void;
-  buildingNuclei?:    boolean;
-  onBuildGaps?:       () => void;
-  buildingGaps?:      boolean;
+  onBuildNuclei?:             () => void;
+  buildingNuclei?:            boolean;
+  onBuildViirsFallbackNuclei?: () => void;
+  buildingViirsFallback?:     boolean;
+  onBuildGaps?:               () => void;
+  buildingGaps?:              boolean;
   gapFilter?:         { high: boolean; medium: boolean; low: boolean };
   onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
   gapTierCounts?:     { high: number; medium: number; low: number };
@@ -52,6 +54,7 @@ const Sidebar: React.FC<Props> = ({
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
   nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
+  onBuildViirsFallbackNuclei, buildingViirsFallback = false,
   onBuildGaps, buildingGaps = false,
   gapFilter, onGapFilterChange, gapTierCounts,
   coveredMunicipios = 0, totalMunicipios = 0,
@@ -145,6 +148,8 @@ const Sidebar: React.FC<Props> = ({
             nucleiNotBuilt={nucleiNotBuilt}
             onBuildNuclei={onBuildNuclei}
             buildingNuclei={buildingNuclei}
+            onBuildViirsFallbackNuclei={onBuildViirsFallbackNuclei}
+            buildingViirsFallback={buildingViirsFallback}
             onBuildGaps={onBuildGaps}
             buildingGaps={buildingGaps}
             gapFilter={gapFilter}

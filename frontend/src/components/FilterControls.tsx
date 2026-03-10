@@ -18,10 +18,12 @@ interface Props {
   nucleiCount?:       number;
   gapsCount?:         number;
   nucleiNotBuilt?:    boolean;
-  onBuildNuclei?:     () => void;
-  buildingNuclei?:    boolean;
-  onBuildGaps?:       () => void;
-  buildingGaps?:      boolean;
+  onBuildNuclei?:              () => void;
+  buildingNuclei?:             boolean;
+  onBuildViirsFallbackNuclei?: () => void;
+  buildingViirsFallback?:      boolean;
+  onBuildGaps?:                () => void;
+  buildingGaps?:               boolean;
   gapFilter?:         { high: boolean; medium: boolean; low: boolean };
   onGapFilterChange?: (f: { high: boolean; medium: boolean; low: boolean }) => void;
   gapTierCounts?:     { high: number; medium: number; low: number };
@@ -32,6 +34,7 @@ const FilterControls: React.FC<Props> = ({
   chains, hiddenChains, onChainToggle, hiddenFormats, onFormatToggle,
   nucleiCount = 0, gapsCount = 0, nucleiNotBuilt = false,
   onBuildNuclei, buildingNuclei = false,
+  onBuildViirsFallbackNuclei, buildingViirsFallback = false,
   onBuildGaps, buildingGaps = false,
   gapFilter, onGapFilterChange, gapTierCounts,
 }) => {
@@ -257,11 +260,21 @@ const FilterControls: React.FC<Props> = ({
         {onBuildNuclei && (
           <button
             onClick={onBuildNuclei}
-            disabled={buildingNuclei || buildingGaps}
+            disabled={buildingNuclei || buildingGaps || buildingViirsFallback}
             className="w-full text-xs py-1.5 px-3 rounded-md bg-orange-500 hover:bg-orange-600
                        text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {buildingNuclei ? '⏳ Construyendo zonas…' : `🏗 Construir Zonas${nucleiCount > 0 ? ` (${nucleiCount})` : ''}`}
+          </button>
+        )}
+        {onBuildViirsFallbackNuclei && (
+          <button
+            onClick={onBuildViirsFallbackNuclei}
+            disabled={buildingNuclei || buildingGaps || buildingViirsFallback}
+            className="w-full text-xs py-1.5 px-3 rounded-md bg-slate-500 hover:bg-slate-600
+                       text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {buildingViirsFallback ? '⏳ Agregando zonas VIIRS…' : '🛰 + Zonas VIIRS sin POI'}
           </button>
         )}
         {onBuildGaps && (

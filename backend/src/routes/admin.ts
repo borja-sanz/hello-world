@@ -923,8 +923,20 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
         nearest_own_store_km  FLOAT,
         competitor_count_1km  INTEGER DEFAULT 0,
         competitor_count_3km  INTEGER DEFAULT 0,
-        opportunity_score     INTEGER DEFAULT 0
+        opportunity_score     INTEGER DEFAULT 0,
+        source                TEXT    NOT NULL DEFAULT 'poi_dbscan',
+        radiance_ntl          FLOAT            DEFAULT NULL,
+        estimated_pop         INTEGER          DEFAULT NULL
       )
+    `);
+
+    // Add columns that may be missing on deployments created before this migration.
+    // ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent and instant in PostgreSQL 11+.
+    await pool.query(`
+      ALTER TABLE poi_nuclei
+        ADD COLUMN IF NOT EXISTS source       TEXT    NOT NULL DEFAULT 'poi_dbscan',
+        ADD COLUMN IF NOT EXISTS radiance_ntl FLOAT            DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS estimated_pop INTEGER         DEFAULT NULL
     `);
 
     await pool.query(`DELETE FROM poi_nuclei`);
@@ -936,7 +948,7 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
         cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
         cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
         nearest_own_store_km, competitor_count_1km, competitor_count_3km,
-        opportunity_score
+        opportunity_score, source
       )
       WITH clustered AS (
         SELECT
@@ -1039,7 +1051,8 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
             WHEN competitor_count_1km BETWEEN 4 AND 8               THEN 10
             ELSE -5
           END
-        ))::int AS opportunity_score
+        ))::int AS opportunity_score,
+        'poi_dbscan' AS source
       FROM enriched
       ORDER BY opportunity_score DESC
     `);
@@ -1047,6 +1060,166 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
     console.log('POI nuclei build complete');
   } catch (err: any) {
     console.error('build-poi-nuclei error:', err.message);
+  }
+});
+
+/**
+ * POST /api/admin/build-viirs-fallback-nuclei
+ *
+ * Adds VIIRS-derived "fallback" Zonas for areas where poi_nuclei (DBSCAN)
+ * found no commercial cluster. Complements the real POI-based Zonas without
+ * overwriting them.
+ *
+ * Algorithm:
+ *  1. Find every ntl_settlements row (viirs_raster_2023) that has no
+ *     poi_dbscan nucleus within 5 km → these are uncovered population centres
+ *  2. For each, compute nearest-store distance and competitor counts
+ *  3. Score on radiance + population + whitespace + competition
+ *  4. Insert as source='viirs_fallback' — visually distinct in the map
+ *
+ * Prerequisites: run build-poi-nuclei first (creates and migrates the table).
+ * Safe to re-run: deletes previous viirs_fallback rows before inserting.
+ * Responds immediately; work runs asynchronously.
+ */
+router.post('/build-viirs-fallback-nuclei', async (_req: Request, res: Response) => {
+  // Respond immediately — heavy work runs async (same pattern as build-poi-nuclei)
+  res.json({ message: 'VIIRS fallback nuclei build started — this may take up to 60 seconds', status: 'running' });
+
+  try {
+    // Guard: poi_nuclei table must exist (run build-poi-nuclei first)
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'poi_nuclei'
+      ) AS exists
+    `);
+    if (!tableCheck.rows[0].exists) {
+      console.log('[viirs-fallback] poi_nuclei table not found — run build-poi-nuclei first');
+      return;
+    }
+
+    // Ensure new columns exist (covers deployments that haven't rebuilt since migration)
+    await pool.query(`
+      ALTER TABLE poi_nuclei
+        ADD COLUMN IF NOT EXISTS source        TEXT    NOT NULL DEFAULT 'poi_dbscan',
+        ADD COLUMN IF NOT EXISTS radiance_ntl  FLOAT            DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS estimated_pop INTEGER          DEFAULT NULL
+    `);
+
+    // Guard: ntl_settlements must have VIIRS raster clusters
+    const viirsCheck = await pool.query(`
+      SELECT COUNT(*) AS c FROM ntl_settlements WHERE ntl_source = 'viirs_raster_2023'
+    `);
+    if (parseInt(viirsCheck.rows[0].c) === 0) {
+      console.log('[viirs-fallback] No viirs_raster_2023 settlements — run build-viirs-settlements first');
+      return;
+    }
+
+    // Remove stale fallback rows from any previous run
+    await pool.query(`DELETE FROM poi_nuclei WHERE source = 'viirs_fallback'`);
+
+    // Build and insert fallback nuclei in one CTE query
+    await pool.query(`
+      WITH candidates AS (
+        -- VIIRS clusters that have no real poi_dbscan nucleus within 5 km
+        SELECT
+          ns.id,
+          ns.lat, ns.lng,
+          ns.radiance_ntl,
+          ns.estimated_pop,
+          mun.name       AS municipio_name,
+          mun.department
+        FROM ntl_settlements ns
+        CROSS JOIN LATERAL (
+          SELECT name, department FROM municipios
+          WHERE centroid IS NOT NULL
+          ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(ns.lng, ns.lat), 4326)
+          LIMIT 1
+        ) mun
+        WHERE ns.ntl_source = 'viirs_raster_2023'
+          AND ns.radiance_ntl IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM poi_nuclei pn
+            WHERE COALESCE(pn.source, 'poi_dbscan') = 'poi_dbscan'
+              AND ST_DWithin(
+                ST_SetSRID(ST_MakePoint(pn.lng, pn.lat), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(ns.lng, ns.lat), 4326)::geography,
+                5000
+              )
+          )
+      ),
+      enriched AS (
+        SELECT
+          c.*,
+          (
+            SELECT ROUND(MIN(ST_Distance(
+              s.geometry::geography,
+              ST_SetSRID(ST_MakePoint(c.lng, c.lat), 4326)::geography
+            )) / 1000)
+            FROM stores s
+            WHERE s.geometry IS NOT NULL AND s.status = 'open'
+          )::float AS nearest_own_store_km,
+          (
+            SELECT COUNT(*) FROM competitors co
+            WHERE co.geometry IS NOT NULL
+              AND ST_DWithin(
+                co.geometry::geography,
+                ST_SetSRID(ST_MakePoint(c.lng, c.lat), 4326)::geography,
+                1000
+              )
+          )::int AS competitor_count_1km,
+          (
+            SELECT COUNT(*) FROM competitors co
+            WHERE co.geometry IS NOT NULL
+              AND ST_DWithin(
+                co.geometry::geography,
+                ST_SetSRID(ST_MakePoint(c.lng, c.lat), 4326)::geography,
+                3000
+              )
+          )::int AS competitor_count_3km
+        FROM candidates c
+      )
+      INSERT INTO poi_nuclei (
+        cluster_id, lat, lng, poi_count, weighted_score,
+        municipio_name, department,
+        cnt_marketplace, cnt_bank, cnt_pharmacy, cnt_school,
+        cnt_bus_station, cnt_fuel, cnt_money_transfer, cnt_atm, cnt_supermarket,
+        nearest_own_store_km, competitor_count_1km, competitor_count_3km,
+        opportunity_score, source, radiance_ntl, estimated_pop
+      )
+      SELECT
+        e.id                  AS cluster_id,
+        e.lat, e.lng,
+        0                     AS poi_count,
+        e.radiance_ntl        AS weighted_score,
+        e.municipio_name, e.department,
+        0, 0, 0, 0, 0, 0, 0, 0, 0,
+        e.nearest_own_store_km,
+        e.competitor_count_1km,
+        e.competitor_count_3km,
+        -- Score: radiance proxy (0–40) + population (0–20) + whitespace (0–20) + competition (−5–20)
+        LEAST(100, GREATEST(0,
+          LEAST(40, e.radiance_ntl * 4.0) +
+          LEAST(20, COALESCE(e.estimated_pop, 0) / 500.0) +
+          LEAST(20, COALESCE(e.nearest_own_store_km, 10) * 2.0) +
+          CASE
+            WHEN e.competitor_count_1km = 0 AND e.competitor_count_3km = 0 THEN 5
+            WHEN e.competitor_count_1km BETWEEN 1 AND 3                    THEN 20
+            WHEN e.competitor_count_1km BETWEEN 4 AND 8                    THEN 10
+            ELSE -5
+          END
+        ))::int               AS opportunity_score,
+        'viirs_fallback'      AS source,
+        e.radiance_ntl,
+        e.estimated_pop
+      FROM enriched e
+    `);
+
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS c FROM poi_nuclei WHERE source = 'viirs_fallback'`
+    );
+    console.log(`[viirs-fallback] ✓ ${rows[0].c} VIIRS fallback nuclei inserted`);
+  } catch (err: any) {
+    console.error('[viirs-fallback] build error:', err.message);
   }
 });
 

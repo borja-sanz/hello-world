@@ -395,7 +395,8 @@ const MapView: React.FC<MapViewProps> = ({
   }, [poiClusters, onPoiClusterClick]);
 
   // ── Render POI nuclei layer (zonas comerciales) ───────────────────────────
-  // Orange circles sized by POI weighted_score; color-coded by opportunity_score
+  // poi_dbscan: orange circles sized by poi_count, color by opportunity_score
+  // viirs_fallback: slate circles sized by estimated_pop, dashed border
   useEffect(() => {
     const group = layersRef.current?.poiNuclei;
     if (!group) return;
@@ -404,44 +405,84 @@ const MapView: React.FC<MapViewProps> = ({
 
     for (const n of poiNuclei) {
       if (!n.lat || !n.lng) continue;
-      const score = n.opportunity_score;
-      const color = score >= 70 ? '#f97316' : score >= 45 ? '#fb923c' : '#fdba74';
-      const size  = Math.max(8, Math.min(22, Math.round(n.poi_count * 1.5)));
 
-      const icon = L.divIcon({
-        html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
-                 background:${color};border:2px solid white;
-                 box-shadow:0 1px 4px rgba(0,0,0,.6);
-                 display:flex;align-items:center;justify-content:center;
-                 font-size:9px;font-weight:700;color:white;
-                 font-family:sans-serif;line-height:1;">${n.poi_count}</div>`,
-        className: '',
-        iconSize:   [size, size],
-        iconAnchor: [size / 2, size / 2],
-      });
-
-      const storeTag = n.nearest_own_store_km !== null
+      const isFallback = n.source === 'viirs_fallback';
+      const score      = n.opportunity_score;
+      const storeTag   = n.nearest_own_store_km !== null
         ? `${n.nearest_own_store_km} km`
         : 'Sin cobertura';
 
-      const popupHtml = `
-        <div class="text-sm" style="min-width:180px">
-          <strong style="color:#f97316">Zona Comercial</strong>
-          <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
-          <div style="margin-top:4px">
-            Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+      let icon: L.DivIcon;
+      let popupHtml: string;
+
+      if (isFallback) {
+        // Slate-blue dashed circle — clearly distinct from POI orange
+        const color = score >= 60 ? '#475569' : score >= 35 ? '#64748b' : '#94a3b8';
+        const size  = Math.max(8, Math.min(18, Math.round((n.estimated_pop ?? 1000) / 500)));
+
+        icon = L.divIcon({
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+                   background:${color};border:2px dashed #cbd5e1;
+                   box-shadow:0 1px 4px rgba(0,0,0,.5);opacity:0.85;"></div>`,
+          className: '',
+          iconSize:   [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+
+        popupHtml = `
+          <div class="text-sm" style="min-width:180px">
+            <strong style="color:#64748b">Zona Estimada — VIIRS</strong>
+            <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
+            <div style="font-size:10px;margin-top:3px;color:#94a3b8;font-style:italic">
+              Sin datos POI — estimado por radiancia satelital
+            </div>
+            <div style="margin-top:4px">
+              Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+            </div>
+            <div style="font-size:11px;margin-top:3px">
+              Radiancia: <strong>${n.radiance_ntl != null ? n.radiance_ntl.toFixed(2) : '—'} nW/cm²/sr</strong><br/>
+              Población est.: <strong>${n.estimated_pop != null ? n.estimated_pop.toLocaleString() : '—'}</strong><br/>
+              Tienda propia: <strong>${storeTag}</strong><br/>
+              Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}
+            </div>
           </div>
-          <div style="font-size:11px;margin-top:3px">
-            POIs: <strong>${n.poi_count}</strong> (peso: ${n.weighted_score.toFixed(1)})<br/>
-            Tienda propia: <strong>${storeTag}</strong><br/>
-            Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}<br/>
-            ${n.cnt_marketplace > 0 ? `🏪 Mercado: ${n.cnt_marketplace}<br/>` : ''}
-            ${n.cnt_bank > 0        ? `🏦 Banco: ${n.cnt_bank}<br/>` : ''}
-            ${n.cnt_pharmacy > 0    ? `💊 Farmacia: ${n.cnt_pharmacy}<br/>` : ''}
-            ${n.cnt_bus_station > 0 ? `🚌 Terminal: ${n.cnt_bus_station}<br/>` : ''}
+        `;
+      } else {
+        // Original poi_dbscan style — unchanged
+        const color = score >= 70 ? '#f97316' : score >= 45 ? '#fb923c' : '#fdba74';
+        const size  = Math.max(8, Math.min(22, Math.round(n.poi_count * 1.5)));
+
+        icon = L.divIcon({
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+                   background:${color};border:2px solid white;
+                   box-shadow:0 1px 4px rgba(0,0,0,.6);
+                   display:flex;align-items:center;justify-content:center;
+                   font-size:9px;font-weight:700;color:white;
+                   font-family:sans-serif;line-height:1;">${n.poi_count}</div>`,
+          className: '',
+          iconSize:   [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+
+        popupHtml = `
+          <div class="text-sm" style="min-width:180px">
+            <strong style="color:#f97316">Zona Comercial</strong>
+            <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
+            <div style="margin-top:4px">
+              Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+            </div>
+            <div style="font-size:11px;margin-top:3px">
+              POIs: <strong>${n.poi_count}</strong> (peso: ${n.weighted_score.toFixed(1)})<br/>
+              Tienda propia: <strong>${storeTag}</strong><br/>
+              Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}<br/>
+              ${n.cnt_marketplace > 0 ? `🏪 Mercado: ${n.cnt_marketplace}<br/>` : ''}
+              ${n.cnt_bank > 0        ? `🏦 Banco: ${n.cnt_bank}<br/>` : ''}
+              ${n.cnt_pharmacy > 0    ? `💊 Farmacia: ${n.cnt_pharmacy}<br/>` : ''}
+              ${n.cnt_bus_station > 0 ? `🚌 Terminal: ${n.cnt_bus_station}<br/>` : ''}
+            </div>
           </div>
-        </div>
-      `;
+        `;
+      }
 
       const marker = L.marker([n.lat, n.lng], { icon });
       marker.bindPopup(popupHtml);

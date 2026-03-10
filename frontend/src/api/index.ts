@@ -323,6 +323,11 @@ export const loadViirs = async (): Promise<{ message: string; updated: number; s
   return data;
 };
 
+export const buildViirsFallbackNuclei = async (): Promise<{ message: string; status: string }> => {
+  const { data } = await api.post('/api/admin/build-viirs-fallback-nuclei');
+  return data;
+};
+
 export const buildViirsSettlements = async (): Promise<{
   message: string;
   inserted: number;
