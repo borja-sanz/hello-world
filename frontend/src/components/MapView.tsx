@@ -404,89 +404,94 @@ const MapView: React.FC<MapViewProps> = ({
     if (!layers.poiNuclei || poiNuclei.length === 0) return;
 
     for (const n of poiNuclei) {
-      if (!n.lat || !n.lng) continue;
+      try {
+        if (!n.lat || !n.lng) continue;
 
-      const isFallback = n.source === 'viirs_fallback';
-      const score      = n.opportunity_score;
-      const storeTag   = n.nearest_own_store_km !== null
-        ? `${n.nearest_own_store_km} km`
-        : 'Sin cobertura';
+        const isFallback = n.source === 'viirs_fallback';
+        const score      = n.opportunity_score ?? 0;
+        const storeTag   = n.nearest_own_store_km != null
+          ? `${n.nearest_own_store_km} km`
+          : 'Sin cobertura';
 
-      let icon: L.DivIcon;
-      let popupHtml: string;
+        let icon: L.DivIcon;
+        let popupHtml: string;
 
-      if (isFallback) {
-        // Slate-blue dashed circle — clearly distinct from POI orange
-        const color = score >= 60 ? '#475569' : score >= 35 ? '#64748b' : '#94a3b8';
-        const size  = Math.max(8, Math.min(18, Math.round((n.estimated_pop ?? 1000) / 500)));
+        if (isFallback) {
+          // Bright teal/cyan dashed circle — clearly visible against OSM map background
+          // (slate/gray blends into map roads; use vivid colors instead)
+          const color = score >= 60 ? '#0891b2' : score >= 35 ? '#0ea5e9' : '#38bdf8';
+          const size  = Math.max(12, Math.min(22, Math.round((n.estimated_pop ?? 1000) / 400)));
 
-        icon = L.divIcon({
-          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
-                   background:${color};border:2px dashed #cbd5e1;
-                   box-shadow:0 1px 4px rgba(0,0,0,.5);opacity:0.85;"></div>`,
-          className: '',
-          iconSize:   [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
+          icon = L.divIcon({
+            html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+                     background:${color};border:2px dashed white;
+                     box-shadow:0 1px 4px rgba(0,0,0,.6);opacity:0.9;"></div>`,
+            className: '',
+            iconSize:   [size, size],
+            iconAnchor: [size / 2, size / 2],
+          });
 
-        popupHtml = `
-          <div class="text-sm" style="min-width:180px">
-            <strong style="color:#64748b">Zona Estimada — VIIRS</strong>
-            <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
-            <div style="font-size:10px;margin-top:3px;color:#94a3b8;font-style:italic">
-              Sin datos POI — estimado por radiancia satelital
+          popupHtml = `
+            <div class="text-sm" style="min-width:180px">
+              <strong style="color:${color}">🛰 Zona Estimada — VIIRS</strong>
+              <div style="color:#6b7280;font-size:11px">${n.municipio_name ?? ''}, ${n.department ?? ''}</div>
+              <div style="font-size:10px;margin-top:3px;color:#94a3b8;font-style:italic">
+                Sin datos POI — estimado por radiancia satelital
+              </div>
+              <div style="margin-top:4px">
+                Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+              </div>
+              <div style="font-size:11px;margin-top:3px">
+                Radiancia: <strong>${n.radiance_ntl != null ? Number(n.radiance_ntl).toFixed(2) : '—'} nW/cm²/sr</strong><br/>
+                Población est.: <strong>${n.estimated_pop != null ? n.estimated_pop.toLocaleString() : '—'}</strong><br/>
+                Tienda propia: <strong>${storeTag}</strong><br/>
+                Competidores 1km: ${n.competitor_count_1km ?? 0} · 3km: ${n.competitor_count_3km ?? 0}
+              </div>
             </div>
-            <div style="margin-top:4px">
-              Score oportunidad: <strong style="color:${color}">${score}/100</strong>
-            </div>
-            <div style="font-size:11px;margin-top:3px">
-              Radiancia: <strong>${n.radiance_ntl != null ? n.radiance_ntl.toFixed(2) : '—'} nW/cm²/sr</strong><br/>
-              Población est.: <strong>${n.estimated_pop != null ? n.estimated_pop.toLocaleString() : '—'}</strong><br/>
-              Tienda propia: <strong>${storeTag}</strong><br/>
-              Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}
-            </div>
-          </div>
-        `;
-      } else {
-        // Original poi_dbscan style — unchanged
-        const color = score >= 70 ? '#f97316' : score >= 45 ? '#fb923c' : '#fdba74';
-        const size  = Math.max(8, Math.min(22, Math.round(n.poi_count * 1.5)));
+          `;
+        } else {
+          // Original poi_dbscan style — unchanged
+          const color = score >= 70 ? '#f97316' : score >= 45 ? '#fb923c' : '#fdba74';
+          const size  = Math.max(8, Math.min(22, Math.round((n.poi_count ?? 1) * 1.5)));
 
-        icon = L.divIcon({
-          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
-                   background:${color};border:2px solid white;
-                   box-shadow:0 1px 4px rgba(0,0,0,.6);
-                   display:flex;align-items:center;justify-content:center;
-                   font-size:9px;font-weight:700;color:white;
-                   font-family:sans-serif;line-height:1;">${n.poi_count}</div>`,
-          className: '',
-          iconSize:   [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
+          icon = L.divIcon({
+            html: `<div style="width:${size}px;height:${size}px;border-radius:50%;
+                     background:${color};border:2px solid white;
+                     box-shadow:0 1px 4px rgba(0,0,0,.6);
+                     display:flex;align-items:center;justify-content:center;
+                     font-size:9px;font-weight:700;color:white;
+                     font-family:sans-serif;line-height:1;">${n.poi_count}</div>`,
+            className: '',
+            iconSize:   [size, size],
+            iconAnchor: [size / 2, size / 2],
+          });
 
-        popupHtml = `
-          <div class="text-sm" style="min-width:180px">
-            <strong style="color:#f97316">Zona Comercial</strong>
-            <div style="color:#6b7280;font-size:11px">${n.municipio_name}, ${n.department}</div>
-            <div style="margin-top:4px">
-              Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+          popupHtml = `
+            <div class="text-sm" style="min-width:180px">
+              <strong style="color:#f97316">Zona Comercial</strong>
+              <div style="color:#6b7280;font-size:11px">${n.municipio_name ?? ''}, ${n.department ?? ''}</div>
+              <div style="margin-top:4px">
+                Score oportunidad: <strong style="color:${color}">${score}/100</strong>
+              </div>
+              <div style="font-size:11px;margin-top:3px">
+                POIs: <strong>${n.poi_count}</strong> (peso: ${Number(n.weighted_score ?? 0).toFixed(1)})<br/>
+                Tienda propia: <strong>${storeTag}</strong><br/>
+                Competidores 1km: ${n.competitor_count_1km ?? 0} · 3km: ${n.competitor_count_3km ?? 0}<br/>
+                ${(n.cnt_marketplace ?? 0) > 0 ? `🏪 Mercado: ${n.cnt_marketplace}<br/>` : ''}
+                ${(n.cnt_bank ?? 0) > 0        ? `🏦 Banco: ${n.cnt_bank}<br/>` : ''}
+                ${(n.cnt_pharmacy ?? 0) > 0    ? `💊 Farmacia: ${n.cnt_pharmacy}<br/>` : ''}
+                ${(n.cnt_bus_station ?? 0) > 0 ? `🚌 Terminal: ${n.cnt_bus_station}<br/>` : ''}
+              </div>
             </div>
-            <div style="font-size:11px;margin-top:3px">
-              POIs: <strong>${n.poi_count}</strong> (peso: ${n.weighted_score.toFixed(1)})<br/>
-              Tienda propia: <strong>${storeTag}</strong><br/>
-              Competidores 1km: ${n.competitor_count_1km} · 3km: ${n.competitor_count_3km}<br/>
-              ${n.cnt_marketplace > 0 ? `🏪 Mercado: ${n.cnt_marketplace}<br/>` : ''}
-              ${n.cnt_bank > 0        ? `🏦 Banco: ${n.cnt_bank}<br/>` : ''}
-              ${n.cnt_pharmacy > 0    ? `💊 Farmacia: ${n.cnt_pharmacy}<br/>` : ''}
-              ${n.cnt_bus_station > 0 ? `🚌 Terminal: ${n.cnt_bus_station}<br/>` : ''}
-            </div>
-          </div>
-        `;
+          `;
+        }
+
+        const marker = L.marker([n.lat, n.lng], { icon });
+        marker.bindPopup(popupHtml);
+        group.addLayer(marker);
+      } catch (err) {
+        console.warn('[MapView] poi nuclei render error on row', n?.id, err);
       }
-
-      const marker = L.marker([n.lat, n.lng], { icon });
-      marker.bindPopup(popupHtml);
-      group.addLayer(marker);
     }
   }, [poiNuclei, layers.poiNuclei]);
 
@@ -734,7 +739,7 @@ const MapView: React.FC<MapViewProps> = ({
           <>
             <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
             <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5">
-              Zonas comerciales
+              Zonas comerciales (POI)
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#f97316' }} />
@@ -748,6 +753,25 @@ const MapView: React.FC<MapViewProps> = ({
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: '#fdba74' }} />
               <span className="text-gray-600 dark:text-gray-400">Baja act. (&lt;45)</span>
             </div>
+            {poiNuclei.some(n => n.source === 'viirs_fallback') && (
+              <>
+                <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase mb-0.5 mt-1">
+                  Zonas VIIRS (sin POI)
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0 border border-dashed border-white" style={{ backgroundColor: '#0891b2' }} />
+                  <span className="text-gray-600 dark:text-gray-400">Alta (≥60)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0 border border-dashed border-white" style={{ backgroundColor: '#0ea5e9' }} />
+                  <span className="text-gray-600 dark:text-gray-400">Media (35–59)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0 border border-dashed border-white" style={{ backgroundColor: '#38bdf8' }} />
+                  <span className="text-gray-600 dark:text-gray-400">Baja (&lt;35)</span>
+                </div>
+              </>
+            )}
           </>
         )}
 
