@@ -115,8 +115,10 @@ export async function buildViirsClusters(tifPath: string): Promise<BuildResult> 
 
       const raw = band[idx] as number;
 
-      // Mark unlit / nodata pixels and move on
-      if (raw == null || raw <= NODATA_LOW || raw >= NODATA_HIGH || raw < MIN_RADIANCE) {
+      // Mark unlit / nodata pixels and move on.
+      // isFinite also rejects IEEE 754 NaN and Infinity — NaN comparisons
+      // always return false so NaN would otherwise pass the < MIN_RADIANCE check.
+      if (!isFinite(raw) || raw <= NODATA_LOW || raw >= NODATA_HIGH || raw < MIN_RADIANCE) {
         labels[idx] = -1;
         continue;
       }
@@ -158,7 +160,7 @@ export async function buildViirsClusters(tifPath: string): Promise<BuildResult> 
             if (labels[nIdx] !== 0) continue; // already visited
 
             const nVal = band[nIdx] as number;
-            if (nVal == null || nVal <= NODATA_LOW || nVal >= NODATA_HIGH || nVal < MIN_RADIANCE) {
+            if (!isFinite(nVal) || nVal <= NODATA_LOW || nVal >= NODATA_HIGH || nVal < MIN_RADIANCE) {
               labels[nIdx] = -1;
               continue;
             }
