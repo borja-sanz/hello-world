@@ -15,6 +15,7 @@ import osmRoutes from './routes/osm';
 import googlePoisRoutes from './routes/google-pois';
 import adminRoutes from './routes/admin';
 import ntlRoutes from './routes/ntl';
+import siteSelectionRoutes from './routes/siteSelection';
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ app.use('/api/osm', osmRoutes);       // kept for backward-compat; UI now uses /
 app.use('/api/pois', googlePoisRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ntl', ntlRoutes);
+app.use('/api/site-selection', siteSelectionRoutes);
 
 // --- Serve compiled React frontend in production ---
 if (isProd) {

@@ -352,3 +352,18 @@ COMMENT ON TABLE municipio_isochrones IS
   'Guatemala municipio centroid. Used by the scoring engine to replace straight-'
   'line ST_DWithin radius queries with drive-time polygon queries. '
   'Profile: mapbox/driving. Contours: 15/30/45 minutes.';
+
+-- ============================================================
+-- STAGE 2: Site Selection — idempotent schema migrations
+-- Adds municipio_id FK to poi_nuclei and competitor_gaps so
+-- candidate generation uses fast indexed lookups instead of
+-- full spatial scans on every request.
+-- ============================================================
+
+-- poi_nuclei: add municipio_id FK (populated via nearest-centroid match)
+ALTER TABLE poi_nuclei ADD COLUMN IF NOT EXISTS municipio_id INTEGER REFERENCES municipios(id);
+CREATE INDEX IF NOT EXISTS poi_nuclei_municipio_id_idx ON poi_nuclei (municipio_id);
+
+-- competitor_gaps: add municipio_id FK
+ALTER TABLE competitor_gaps ADD COLUMN IF NOT EXISTS municipio_id INTEGER REFERENCES municipios(id);
+CREATE INDEX IF NOT EXISTS competitor_gaps_municipio_id_idx ON competitor_gaps (municipio_id);

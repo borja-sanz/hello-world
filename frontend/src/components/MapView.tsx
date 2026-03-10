@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import 'leaflet.markercluster';
-import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown, PoiNucleus, CompetitorGap } from '../types';
+import type { Store, Competitor, OpportunityScore, LayerState, TradeAreaAnalysis, NtlSettlement, PoiCluster, PoiBreakdown, PoiNucleus, CompetitorGap, SiteSelectionResult } from '../types';
 
 // Fix default Leaflet marker icons broken by bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -114,6 +114,7 @@ interface MapViewProps {
   poiNuclei?:          PoiNucleus[];
   competitorGaps?:     CompetitorGap[];
   selectedOpp?:        OpportunityScore | null;
+  siteSelection?:      SiteSelectionResult | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -124,6 +125,7 @@ const MapView: React.FC<MapViewProps> = ({
   ntlSettlements = [], onNtlClick,
   poiClusters = [], onOppBubbleClick, onPoiClusterClick,
   poiNuclei = [], competitorGaps = [], selectedOpp = null,
+  siteSelection = null,
 }) => {
   const [currentZoom, setCurrentZoom] = useState(8);
   const [legendCollapsed, setLegendCollapsed] = useState(false);
@@ -138,6 +140,7 @@ const MapView: React.FC<MapViewProps> = ({
     poiClusters:     L.LayerGroup;
     poiNuclei:       L.MarkerClusterGroup;
     competitorGaps:  L.LayerGroup;
+    siteSelection:   L.LayerGroup;
   } | null>(null);
 
   // ── Initialize map once ───────────────────────────────────────────────────
@@ -231,6 +234,7 @@ const MapView: React.FC<MapViewProps> = ({
         },
       }),
       competitorGaps: L.layerGroup(),              // off by default
+      siteSelection:  L.layerGroup(),              // auto-enabled when data loads
     };
 
     layersRef.current = groups;
@@ -621,6 +625,58 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [competitorGaps, layers.competitorGaps]);
 
+  // ── Render site selection candidates ─────────────────────────────────────
+  useEffect(() => {
+    const group = layersRef.current?.siteSelection;
+    if (!group) return;
+    group.clearLayers();
+    if (!layers.siteSelection || !siteSelection) return;
+
+    const allCandidates = siteSelection.top_candidate
+      ? [siteSelection.top_candidate, ...siteSelection.alternatives]
+      : siteSelection.alternatives;
+
+    const REC_COLORS: Record<string, string> = {
+      GO: '#16a34a', CAUTION: '#d97706', 'NO-GO': '#dc2626',
+    };
+    const SOURCE_LABEL: Record<string, string> = {
+      viirs: 'VIIRS', poi_nucleus: 'Zona Comercial', comp_gap: 'Brecha',
+    };
+
+    for (const c of allCandidates) {
+      const color = REC_COLORS[c.recommendation] ?? '#6b7280';
+      const icon = c.rank === 1
+        ? L.divIcon({
+            html: `<div style="width:32px;height:32px;border-radius:50%;background:#f59e0b;border:3px solid white;box-shadow:0 0 0 4px #f59e0b60,0 2px 6px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:white;font-family:sans-serif;">1</div>`,
+            className: '', iconSize: [32, 32], iconAnchor: [16, 16],
+          })
+        : rankIcon(c.rank, color);
+
+      const popupHtml = `
+        <div style="min-width:170px;font-size:12px">
+          <div style="font-weight:700;color:${color}">#${c.rank} — ${c.micro_score.toFixed(0)}/100 (${c.recommendation})</div>
+          <div style="color:#6b7280;font-size:11px;margin-bottom:4px">${SOURCE_LABEL[c.source] ?? c.source}${c.format_suggestion ? ` · ${c.format_suggestion}` : ''}</div>
+          <div style="font-size:11px;line-height:1.6">
+            NTL: ${c.factors.ntl_luminosity.toFixed(0)} · Comercial: ${c.factors.commercial_gravity.toFixed(0)} · Brecha: ${c.factors.gap_quality.toFixed(0)}<br/>
+            Pob. 3 km: <strong>${c.supporting_data.ntl_pop_3km.toLocaleString()}</strong><br/>
+            ${c.supporting_data.nearest_own_store_km != null ? `Tienda cercana: ${c.supporting_data.nearest_own_store_km.toFixed(1)} km` : ''}
+          </div>
+        </div>`;
+
+      const marker = L.marker([c.lat, c.lng], { icon, zIndexOffset: c.rank === 1 ? 500 : 200 - c.rank });
+      marker.bindPopup(popupHtml);
+      group.addLayer(marker);
+
+      // 3 km catchment ring for top candidate
+      if (c.rank === 1) {
+        L.circle([c.lat, c.lng], {
+          radius: 3000, color: '#f59e0b', fillColor: '#f59e0b',
+          weight: 1.5, opacity: 0.6, fillOpacity: 0.04, dashArray: '6 4',
+        }).addTo(group);
+      }
+    }
+  }, [siteSelection, layers.siteSelection]);
+
   // ── flyToTarget: pan/zoom map when a sidebar card is clicked ─────────────
   useEffect(() => {
     if (!flyToTarget || !mapRef.current) return;
@@ -677,6 +733,8 @@ const MapView: React.FC<MapViewProps> = ({
     else                        { map.removeLayer(lg.poiNuclei); }
     if (layers.competitorGaps)  { if (!map.hasLayer(lg.competitorGaps))  lg.competitorGaps.addTo(map); }
     else                        { map.removeLayer(lg.competitorGaps); }
+    if (layers.siteSelection)   { if (!map.hasLayer(lg.siteSelection))   lg.siteSelection.addTo(map); }
+    else                        { map.removeLayer(lg.siteSelection); }
   }, [layers]);
 
   return (

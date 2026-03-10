@@ -10,12 +10,13 @@ import {
   fetchPoiNuclei, fetchCompetitorGaps, buildPoiNuclei, buildCompetitorGaps,
   buildViirsFallbackNuclei,
   fetchAdminStats,
+  fetchSiteSelection,
 } from './api';
 import { exportOpportunitiesReport } from './utils/export';
 import type {
   Store, Competitor, OpportunityScore, TradeAreaAnalysis,
   FilterState, LayerState, NtlSettlementsResponse, NtlSettlement, PoiCluster,
-  PoiNucleus, CompetitorGap,
+  PoiNucleus, CompetitorGap, SiteSelectionResult, SiteCandidate,
 } from './types';
 
 const App: React.FC = () => {
@@ -46,6 +47,8 @@ const App: React.FC = () => {
   const [buildingViirsFallback, setBuildingViirsFallback] = useState(false);
   const [nucleiNotBuilt,    setNucleiNotBuilt]    = useState(false);
   const [selectedOpp,       setSelectedOpp]       = useState<OpportunityScore | null>(null);
+  const [siteSelection,     setSiteSelection]     = useState<SiteSelectionResult | null>(null);
+  const [siteSelLoading,    setSiteSelLoading]    = useState(false);
   const [gapFilter,         setGapFilter]         = useState({ high: true, medium: true, low: true });
   const [coveredMunicipios, setCoveredMunicipios] = useState<number>(0);
   const [totalMunicipios,   setTotalMunicipios]   = useState<number>(0);
@@ -62,7 +65,7 @@ const App: React.FC = () => {
 
   const [layers, setLayers] = useState<LayerState>({
     stores: true, competitors: true, opportunities: true,
-    poiNuclei: false, competitorGaps: false,
+    poiNuclei: false, competitorGaps: false, siteSelection: false,
   });
 
   const [filters, setFilters] = useState<FilterState>({
@@ -309,7 +312,7 @@ const App: React.FC = () => {
     low:    competitorGaps.filter(g => g.gap_score < 40).length,
   };
 
-  // ── Opportunity card click → fly to municipio + load NTL settlements ──────
+  // ── Opportunity card click → fly to municipio + load NTL + site selection ─
   const handleOppClick = useCallback(async (opp: OpportunityScore) => {
     setSelectedOpp(opp);
     if (opp.centroid) {
@@ -317,6 +320,19 @@ const App: React.FC = () => {
       const lng = opp.centroid.lng as unknown as number;
       setFlyToTarget({ lat, lng, zoom: 11 });
     }
+
+    // Clear previous site selection and load new one
+    setSiteSelection(null);
+    setSiteSelLoading(true);
+    fetchSiteSelection(opp.municipio_id)
+      .then(r => {
+        setSiteSelection(r);
+        // Auto-enable site selection layer when data arrives
+        setLayers(l => ({ ...l, siteSelection: true }));
+      })
+      .catch(() => { /* site selection is optional — silently skip */ })
+      .finally(() => setSiteSelLoading(false));
+
     // Load NTL settlements, sub-municipio scores, and POI clusters in parallel
     setNtlData(null);
     setPoiClusters([]);
@@ -361,6 +377,12 @@ const App: React.FC = () => {
   const handleSettlementClick = useCallback((s: NtlSettlement) => {
     setFlyToTarget({ lat: s.lat, lng: s.lng, zoom: 14 });
   }, []);
+
+  // ── Site selection candidate clicked → fly to point + trigger trade area ──
+  const handleSiteCandidateClick = useCallback((c: SiteCandidate) => {
+    setFlyToTarget({ lat: c.lat, lng: c.lng, zoom: 14 });
+    handleMapClick(c.lat, c.lng);
+  }, [handleMapClick]);
 
   return (
     <div className="h-full flex flex-col">
@@ -431,6 +453,7 @@ const App: React.FC = () => {
             poiNuclei={poiNuclei}
             competitorGaps={visibleGaps}
             selectedOpp={selectedOpp}
+            siteSelection={siteSelection}
           />
         </div>
 
@@ -452,6 +475,10 @@ const App: React.FC = () => {
           ntlLoading={ntlLoading}
           onNtlClose={() => { setNtlData(null); setPoiClusters([]); }}
           onSettlementClick={handleSettlementClick}
+          siteSelection={siteSelection}
+          siteSelLoading={siteSelLoading}
+          onSiteSelClose={() => { setSiteSelection(null); setLayers(l => ({ ...l, siteSelection: false })); }}
+          onSiteCandidateClick={handleSiteCandidateClick}
           chains={chains}
           hiddenChains={hiddenChains}
           onChainToggle={handleChainToggle}

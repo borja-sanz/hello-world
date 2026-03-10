@@ -2,7 +2,7 @@ import axios from 'axios';
 import type {
   Store, Competitor, Municipio, OpportunityScore,
   TradeAreaAnalysis, CalibrationConfig, NtlSettlementsResponse, PoiCluster,
-  PoiNucleus, CompetitorGap,
+  PoiNucleus, CompetitorGap, SiteSelectionResult,
 } from '../types';
 
 // In production (Render), VITE_API_URL is set to '' so requests go to
@@ -325,6 +325,15 @@ export const loadViirs = async (): Promise<{ message: string; updated: number; s
 
 export const buildViirsFallbackNuclei = async (): Promise<{ message: string; status: string }> => {
   const { data } = await api.post('/api/admin/build-viirs-fallback-nuclei');
+  return data;
+};
+
+// ─── Site Selection (Stage 2) ─────────────────────────────────────────────────
+
+export const fetchSiteSelection = async (
+  municipioId: number,
+): Promise<SiteSelectionResult> => {
+  const { data } = await api.get(`/api/site-selection/${municipioId}`, { timeout: 60_000 });
   return data;
 };
 

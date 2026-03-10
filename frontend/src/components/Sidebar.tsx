@@ -3,9 +3,10 @@ import OpportunityCard from './OpportunityCard';
 import TradeAreaPanel from './TradeAreaPanel';
 import FilterControls from './FilterControls';
 import NtlPanel from './NtlPanel';
+import SiteSelectionPanel from './SiteSelectionPanel';
 import type {
   OpportunityScore, TradeAreaAnalysis, FilterState, LayerState,
-  NtlSettlementsResponse, NtlSettlement,
+  NtlSettlementsResponse, NtlSettlement, SiteSelectionResult, SiteCandidate,
 } from '../types';
 import { exportOpportunitiesCsv } from '../utils/export';
 
@@ -45,6 +46,10 @@ interface Props {
   gapTierCounts?:     { high: number; medium: number; low: number };
   coveredMunicipios?: number;
   totalMunicipios?:   number;
+  siteSelection?:         SiteSelectionResult | null;
+  siteSelLoading?:        boolean;
+  onSiteSelClose?:        () => void;
+  onSiteCandidateClick?:  (c: SiteCandidate) => void;
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -58,6 +63,8 @@ const Sidebar: React.FC<Props> = ({
   onBuildGaps, buildingGaps = false,
   gapFilter, onGapFilterChange, gapTierCounts,
   coveredMunicipios = 0, totalMunicipios = 0,
+  siteSelection = null, siteSelLoading = false,
+  onSiteSelClose, onSiteCandidateClick,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -160,6 +167,22 @@ const Sidebar: React.FC<Props> = ({
           {tradeArea && (
             <div className="border-t border-gray-200 dark:border-gray-700">
               <TradeAreaPanel analysis={tradeArea} onClose={onTradeAreaClose} />
+            </div>
+          )}
+
+          {(siteSelection || siteSelLoading) && (
+            <div className="border-t border-gray-200 dark:border-gray-700">
+              <SiteSelectionPanel
+                result={siteSelection ?? {
+                  municipio_id: 0, municipio_name: '', department: '',
+                  candidate_count: 0, top_candidate: null, alternatives: [],
+                  constraints_applied: { candidates_generated: 0, eliminated_own_store: 0, surviving: 0 },
+                  generated_at: '',
+                }}
+                loading={siteSelLoading}
+                onClose={onSiteSelClose ?? (() => {})}
+                onCandidateClick={onSiteCandidateClick ?? (() => {})}
+              />
             </div>
           )}
 

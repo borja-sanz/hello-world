@@ -112,6 +112,56 @@ export interface LayerState {
   opportunities: boolean;
   poiNuclei: boolean;
   competitorGaps: boolean;
+  siteSelection: boolean;
+}
+
+// ─── Stage 2: Site Selection ──────────────────────────────────────────────────
+
+export interface SiteCandidateFactors {
+  ntl_luminosity: number;
+  commercial_gravity: number;
+  gap_quality: number;
+  pop_catchment: number;
+  socioeconomic: number;
+}
+
+export interface SiteCandidateSupportingData {
+  radiance_ntl: number | null;
+  ntl_pop_3km: number;
+  nearest_own_store_km: number | null;
+  competitor_count_3km: number;
+  road_accessible: boolean;
+}
+
+export interface SiteCandidate {
+  rank: number;
+  lat: number;
+  lng: number;
+  micro_score: number;
+  source: 'viirs' | 'poi_nucleus' | 'comp_gap';
+  source_id: string;
+  factors: SiteCandidateFactors;
+  supporting_data: SiteCandidateSupportingData;
+  recommendation: 'GO' | 'CAUTION' | 'NO-GO';
+  format_suggestion: 'Despensa Familiar' | 'Maxi Despensa' | null;
+  reasoning: string;
+}
+
+export interface SiteSelectionConstraints {
+  candidates_generated: number;
+  eliminated_own_store: number;
+  surviving: number;
+}
+
+export interface SiteSelectionResult {
+  municipio_id: number;
+  municipio_name: string;
+  department: string;
+  candidate_count: number;
+  top_candidate: SiteCandidate | null;
+  alternatives: SiteCandidate[];
+  constraints_applied: SiteSelectionConstraints;
+  generated_at: string;
 }
 
 export interface PoiNucleus {
