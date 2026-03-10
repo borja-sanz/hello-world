@@ -1,6 +1,14 @@
 import React from 'react';
 import ScoreBadge from './ScoreBadge';
-import type { TradeAreaAnalysis, PoiBreakdown } from '../types';
+import type { TradeAreaAnalysis, PoiBreakdown, FactorScores } from '../types';
+
+const FACTOR_LABELS: { key: keyof FactorScores; label: string; color: string; weight: string }[] = [
+  { key: 'population',    label: 'Población',      color: 'bg-blue-500',   weight: '28%' },
+  { key: 'mobility',      label: 'Accesibilidad',  color: 'bg-purple-500', weight: '22%' },
+  { key: 'commercial',    label: 'Comercio',       color: 'bg-orange-500', weight: '22%' },
+  { key: 'competition',   label: 'Competencia',    color: 'bg-teal-500',   weight: '15%' },
+  { key: 'socioeconomic', label: 'Socioeconómico', color: 'bg-pink-500',   weight: '13%' },
+];
 
 const POI_LABELS: { key: keyof PoiBreakdown; label: string; icon: string; weight: number }[] = [
   { key: 'marketplace',    label: 'Mercado',          icon: '🏪', weight: 3.0 },
@@ -61,6 +69,33 @@ const TradeAreaPanel: React.FC<Props> = ({ analysis, onClose }) => {
       {reasoning && (
         <div className="px-3 pb-2 text-xs text-gray-500 dark:text-gray-400 italic">
           {reasoning}
+        </div>
+      )}
+
+      {/* Factor score breakdown */}
+      {analysis.factors && (
+        <div className="px-3 pb-2">
+          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            Desglose de puntaje
+          </div>
+          <div className="space-y-0.5">
+            {FACTOR_LABELS.map(({ key, label, color, weight }) => (
+              <div key={key} className="flex items-center gap-1.5">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 w-24 flex-shrink-0">
+                  {label} <span className="opacity-60">({weight})</span>
+                </span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${color} transition-all`}
+                    style={{ width: `${Math.round(analysis.factors[key])}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 w-6 text-right">
+                  {Math.round(analysis.factors[key])}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
