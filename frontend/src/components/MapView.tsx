@@ -210,16 +210,20 @@ const MapView: React.FC<MapViewProps> = ({
         zoomToBoundsOnClick: true,
         spiderfyOnMaxZoom: true,
         iconCreateFunction(cluster) {
-          const count = cluster.getChildCount();
-          const size  = count >= 100 ? 36 : count >= 20 ? 30 : 24;
+          const children  = cluster.getAllChildMarkers();
+          const totalScore = Math.round(
+            children.reduce((sum, m) => sum + ((m.options as any).opportunityScore ?? 0), 0)
+          );
+          const size = totalScore >= 300 ? 40 : totalScore >= 150 ? 34 : totalScore >= 60 ? 28 : 22;
+          const fs   = size <= 22 ? 10 : 11;
           return L.divIcon({
             html: `<div style="
               width:${size}px;height:${size}px;border-radius:50%;
               background:#f97316;border:2px solid white;
               box-shadow:0 1px 4px rgba(0,0,0,.5);
               display:flex;align-items:center;justify-content:center;
-              font-size:${count >= 100 ? 10 : 11}px;font-weight:700;color:white;
-              font-family:sans-serif;line-height:1;">${count}</div>`,
+              font-size:${fs}px;font-weight:700;color:white;
+              font-family:sans-serif;line-height:1;">${totalScore}</div>`,
             className: '',
             iconSize:   [size, size],
             iconAnchor: [size / 2, size / 2],
@@ -552,7 +556,7 @@ const MapView: React.FC<MapViewProps> = ({
           `;
         }
 
-        const marker = L.marker([n.lat, n.lng], { icon });
+        const marker = L.marker([n.lat, n.lng], { icon, opportunityScore: n.opportunity_score ?? 0 } as any);
         marker.bindPopup(popupHtml);
         group.addLayer(marker);
       } catch (err) {
