@@ -81,7 +81,14 @@ const OpportunityCard: React.FC<Props> = ({ opp, rank, onClick }) => {
 
       {/* Quick stats */}
       <div className="flex gap-3 text-xs text-gray-500 dark:text-gray-400 mb-2">
-        <span>👥 {(opp.population ?? 0).toLocaleString()}</span>
+        <div className="flex flex-col gap-0.5">
+          <span>👥 {(opp.population ?? 0).toLocaleString()}</span>
+          {opp.area_km2 && opp.population && opp.area_km2 > 0 && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              {Math.round(opp.population / opp.area_km2).toLocaleString()} hab/km²
+            </span>
+          )}
+        </div>
         {opp.suggested_format && (
           <span className="text-brand-600 dark:text-brand-400 font-medium truncate">
             {opp.suggested_format === 'Maxi Despensa' ? '🏬' : '🏪'} {opp.suggested_format}

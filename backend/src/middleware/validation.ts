@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from './errorHandler';
 
-const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'] as const;
+const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other', 'Full Potential'] as const;
 const VALID_STATUSES = ['open', 'planned', 'closed', 'under_construction'] as const;
 const VALID_PERFORMANCE = ['success', 'on-plan', 'underperforming'] as const;
 

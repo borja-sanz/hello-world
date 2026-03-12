@@ -19,7 +19,7 @@ export interface ParseResult {
 }
 
 const REQUIRED_COLUMNS = ['store_name', 'format', 'lat', 'lng'];
-const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'];
+const VALID_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other', 'Full Potential'];
 const VALID_STATUSES = ['open', 'planned', 'closed', 'under_construction'];
 
 // Maps common column name variants → canonical name (shared by both parsers)

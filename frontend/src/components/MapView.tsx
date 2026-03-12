@@ -52,6 +52,19 @@ function starIcon(color: string): L.DivIcon {
   });
 }
 
+function fullPotentialIcon(): L.DivIcon {
+  const svg = `<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="11,1 13.5,8 21,8.5 15.5,13.5 17.5,21 11,17 4.5,21 6.5,13.5 1,8.5 8.5,8"
+             fill="#eab308" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize:   [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
 function poiClusterIcon(count: number): L.DivIcon {
   const size = count >= 10 ? 26 : count >= 5 ? 22 : 18;
   return L.divIcon({
@@ -87,6 +100,7 @@ const STORE_COLORS: Record<string, string> = {
   'Walmart':           '#1d4ed8',
   'Paiz':              '#ca8a04',
   'Other':             '#6b7280',
+  'Full Potential':    '#eab308',
 };
 
 const SCORE_COLORS = {
@@ -274,7 +288,8 @@ const MapView: React.FC<MapViewProps> = ({
     for (const s of stores) {
       if (!s.lat || !s.lng) continue;
       const color = STORE_COLORS[s.format] ?? '#6b7280';
-      const marker = L.marker([s.lat, s.lng], { icon: starIcon(color) });
+      const icon = s.format === 'Full Potential' ? fullPotentialIcon() : starIcon(color);
+      const marker = L.marker([s.lat, s.lng], { icon });
       marker.bindPopup(`
         <div class="text-sm">
           <strong>${s.name}</strong><br/>
@@ -822,6 +837,13 @@ const MapView: React.FC<MapViewProps> = ({
             <span className="text-gray-600 dark:text-gray-400 truncate">{fmt}</span>
           </div>
         ))}
+        <div className="flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 22 22" className="flex-shrink-0">
+            <polygon points="11,1 13.5,8 21,8.5 15.5,13.5 17.5,21 11,17 4.5,21 6.5,13.5 1,8.5 8.5,8"
+                     fill="#eab308" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
+          </svg>
+          <span className="text-gray-600 dark:text-gray-400 truncate">Full Potential</span>
+        </div>
 
         <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
         <div className="flex items-center gap-1.5">

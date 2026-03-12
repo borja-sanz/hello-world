@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS postgis_topology;
 CREATE TABLE IF NOT EXISTS stores (
     id              SERIAL PRIMARY KEY,
     name            VARCHAR(255) NOT NULL,
-    format          VARCHAR(50) NOT NULL CHECK (format IN ('Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other')),
+    format          VARCHAR(50) NOT NULL CHECK (format IN ('Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other', 'Full Potential')),
     chain           VARCHAR(100),
     lat             DECIMAL(10, 7) NOT NULL,
     lng             DECIMAL(10, 7) NOT NULL,

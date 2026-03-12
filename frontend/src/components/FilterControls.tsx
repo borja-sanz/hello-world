@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { FilterState, LayerState } from '../types';
 
-const STORE_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other'] as const;
+const STORE_FORMATS = ['Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other', 'Full Potential'] as const;
 
 interface Props {
   filters:            FilterState;
@@ -179,6 +179,7 @@ const FilterControls: React.FC<Props> = ({
                 'Walmart':           '#1d4ed8',
                 'Paiz':              '#ca8a04',
                 'Other':             '#6b7280',
+                'Full Potential':    '#eab308',
               };
               return (
                 <label key={fmt} className="flex items-center gap-2 cursor-pointer">

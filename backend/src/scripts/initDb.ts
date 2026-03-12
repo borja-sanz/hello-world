@@ -28,6 +28,14 @@ export async function initDb(): Promise<void> {
       name: 'municipio_isochrones.fetched_at',
       sql:  `ALTER TABLE municipio_isochrones ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW()`,
     },
+    {
+      name: 'stores.format_check add Full Potential',
+      sql: `
+        ALTER TABLE stores DROP CONSTRAINT IF EXISTS stores_format_check;
+        ALTER TABLE stores ADD CONSTRAINT stores_format_check
+          CHECK (format IN ('Despensa Familiar', 'Maxi Despensa', 'Walmart', 'Paiz', 'Other', 'Full Potential'));
+      `,
+    },
   ];
 
   for (const { name, sql } of migrations) {

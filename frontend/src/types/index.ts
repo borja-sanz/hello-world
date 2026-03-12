@@ -1,7 +1,7 @@
 export interface Store {
   id: number;
   name: string;
-  format: 'Despensa Familiar' | 'Maxi Despensa' | 'Walmart' | 'Paiz' | 'Other';
+  format: 'Despensa Familiar' | 'Maxi Despensa' | 'Walmart' | 'Paiz' | 'Other' | 'Full Potential';
   chain: string | null;
   lat: number;
   lng: number;
@@ -59,6 +59,7 @@ export interface OpportunityScore {
   suggested_format: string | null;
   reasoning: string;
   nearest_store_km: number | null;
+  area_km2: number | null;
   centroid?: { lat: number; lng: number };
 }
 
