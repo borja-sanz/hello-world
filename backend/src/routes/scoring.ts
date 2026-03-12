@@ -34,7 +34,7 @@ router.get('/municipios', async (req: Request, res: Response, next: NextFunction
          (SELECT ROUND(ST_Distance(s.geometry::geography,
             m.centroid::geography)/1000)
           FROM stores s, municipios m
-          WHERE m.id = los.municipio_id AND s.geometry IS NOT NULL
+          WHERE m.id = los.municipio_id AND s.geometry IS NOT NULL AND s.format != 'Full Potential'
           ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography) LIMIT 1) AS nearest_store_km
        FROM latest_opportunity_scores los
        JOIN municipios mun ON mun.id = los.municipio_id
@@ -91,7 +91,7 @@ router.get('/blue-ocean', async (req: Request, res: Response, next: NextFunction
            (SELECT ROUND(ST_Distance(s.geometry::geography, m.centroid::geography) / 1000)
             FROM stores s
             JOIN municipios m ON m.id = los.municipio_id
-            WHERE s.geometry IS NOT NULL
+            WHERE s.geometry IS NOT NULL AND s.format != 'Full Potential'
             ORDER BY ST_Distance(s.geometry::geography, m.centroid::geography)
             LIMIT 1) AS nearest_store_km
          FROM latest_opportunity_scores los

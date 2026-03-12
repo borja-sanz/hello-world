@@ -183,7 +183,7 @@ async function scoreCandidate(c: RawCandidate, cfg: any): Promise<ScoredResult> 
            ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
          )) / 1000)::float AS km
          FROM stores
-         WHERE geometry IS NOT NULL AND status = 'open'`,
+         WHERE geometry IS NOT NULL AND status = 'open' AND format != 'Full Potential'`,
         [c.lat, c.lng],
       ),
 

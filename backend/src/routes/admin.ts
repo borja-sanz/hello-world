@@ -595,7 +595,7 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
            WHERE m.centroid IS NOT NULL
            ORDER BY m.centroid <-> ST_SetSRID(ST_MakePoint(s.lng, s.lat), 4326)
            LIMIT 1
-         )) FROM stores s WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL)             AS covered_municipios,
+         )) FROM stores s WHERE s.lat IS NOT NULL AND s.lng IS NOT NULL AND s.format != 'Full Potential')  AS covered_municipios,
         (SELECT COUNT(*) FROM ntl_settlements)                                        AS ntl_settlement_count,
         (SELECT COUNT(*) FROM ntl_settlements WHERE ntl_source = 'viirs_2023')        AS ntl_viirs_count,
         (SELECT COUNT(*) FROM ntl_settlements WHERE ntl_source != 'viirs_2023')       AS ntl_synthetic_count
@@ -1003,7 +1003,7 @@ router.post('/build-poi-nuclei', async (_req: Request, res: Response, next: Next
               ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography
             )) / 1000)
             FROM stores s
-            WHERE s.geometry IS NOT NULL AND s.status = 'open'
+            WHERE s.geometry IS NOT NULL AND s.status = 'open' AND s.format != 'Full Potential'
           )::float AS nearest_own_store_km,
           (
             SELECT COUNT(*) FROM competitors c
@@ -1155,7 +1155,7 @@ router.post('/build-viirs-fallback-nuclei', async (_req: Request, res: Response)
               ST_SetSRID(ST_MakePoint(c.lng, c.lat), 4326)::geography
             )) / 1000)
             FROM stores s
-            WHERE s.geometry IS NOT NULL AND s.status = 'open'
+            WHERE s.geometry IS NOT NULL AND s.status = 'open' AND s.format != 'Full Potential'
           )::float AS nearest_own_store_km,
           (
             SELECT COUNT(*) FROM competitors co
@@ -1266,7 +1266,7 @@ router.post('/build-competitor-gaps', async (_req: Request, res: Response, next:
                c.geometry::geography
              )) / 1000)
              FROM stores s
-             WHERE s.geometry IS NOT NULL AND s.status = 'open'
+             WHERE s.geometry IS NOT NULL AND s.status = 'open' AND s.format != 'Full Potential'
                AND ST_DWithin(s.geometry::geography, c.geometry::geography, 200000)),
             50
           )::float AS nearest_own_store_km

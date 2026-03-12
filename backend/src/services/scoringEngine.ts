@@ -373,7 +373,7 @@ async function scoreMobility(
       const storeResult = await pool.query(
         `SELECT COUNT(*) AS cnt FROM (
            SELECT geometry FROM stores
-             WHERE geometry IS NOT NULL
+             WHERE geometry IS NOT NULL AND format != 'Full Potential'
                AND ST_Intersects(geometry, (
                  SELECT geometry FROM municipio_isochrones
                  WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 15
@@ -394,7 +394,7 @@ async function scoreMobility(
     } else {
       const storeResult = await pool.query(
         `SELECT COUNT(*) AS cnt FROM (
-           SELECT geometry FROM stores      WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
+           SELECT geometry FROM stores      WHERE format != 'Full Potential' AND ST_DWithin(geometry::geography, ${geo}, 10000)
            UNION ALL
            SELECT geometry FROM competitors WHERE ST_DWithin(geometry::geography, ${geo}, 10000)
          ) combined`,
@@ -623,7 +623,7 @@ async function scoreCompetition(
   if (municipioId !== null && isoContours.has(45)) {
     const voidResult = await pool.query(
       `SELECT COUNT(*) AS cnt FROM (
-         SELECT geometry FROM stores WHERE geometry IS NOT NULL
+         SELECT geometry FROM stores WHERE geometry IS NOT NULL AND format != 'Full Potential'
            AND ST_Intersects(geometry, (
              SELECT geometry FROM municipio_isochrones
              WHERE municipio_id = $1 AND profile = 'mapbox/driving' AND contour_minutes = 45
@@ -644,7 +644,7 @@ async function scoreCompetition(
     // Fallback: 20km radius
     const voidResult = await pool.query(
       `SELECT COUNT(*) AS cnt FROM (
-         SELECT geometry FROM stores      WHERE geometry IS NOT NULL
+         SELECT geometry FROM stores      WHERE geometry IS NOT NULL AND format != 'Full Potential'
            AND ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint($2,$1),4326)::geography, 20000)
          UNION ALL
          SELECT geometry FROM competitors WHERE geometry IS NOT NULL
@@ -1023,7 +1023,7 @@ async function buildRing(
                 ROUND(ST_Distance(geometry::geography,
                   ST_SetSRID(ST_MakePoint($3,$4),4326)::geography)/1000) AS dist_km
          FROM stores
-         WHERE geometry IS NOT NULL
+         WHERE geometry IS NOT NULL AND format != 'Full Potential'
            AND ST_Intersects(geometry, ${isoSub})
          ORDER BY dist_km`,
         [municipioId, isoContourMinutes, lng, lat]
@@ -1051,7 +1051,7 @@ async function buildRing(
       pool.query(
         `SELECT name, format,
                 ROUND(ST_Distance(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography)/1000) AS dist_km
-         FROM stores WHERE geometry IS NOT NULL
+         FROM stores WHERE geometry IS NOT NULL AND format != 'Full Potential'
            AND ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint($2,$1),4326)::geography,$3)
          ORDER BY dist_km`,
         [lat, lng, radiusKm * 1000]
