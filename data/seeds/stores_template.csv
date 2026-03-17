@@ -1,0 +1,24 @@
+store_name,format,lat,lng,status,department,municipio,open_date,notes
+"Despensa Familiar Zona 1",Despensa Familiar,14.6408,-90.5133,open,Guatemala,Guatemala,2020-01-15,Centro histórico
+"Despensa Familiar Mixco",Despensa Familiar,14.6350,-90.5950,open,Guatemala,Mixco,2019-06-01,
+"Despensa Familiar Villa Nueva",Despensa Familiar,14.5350,-90.5820,open,Guatemala,Villa Nueva,,
+"Despensa Familiar Xela Zona 3",Despensa Familiar,14.8347,-91.5172,open,Quetzaltenango,Quetzaltenango,,
+"Despensa Familiar Cobán",Despensa Familiar,15.4680,-90.3740,open,Alta Verapaz,Cobán,,
+"Despensa Familiar Chimaltenango",Despensa Familiar,14.6600,-90.8197,open,Chimaltenango,Chimaltenango,,
+"Despensa Familiar Escuintla",Despensa Familiar,14.3015,-90.7873,open,Escuintla,Escuintla,,
+"Despensa Familiar Huehuetenango",Despensa Familiar,15.3200,-91.4780,open,Huehuetenango,Huehuetenango,,
+"Despensa Familiar San Marcos",Despensa Familiar,14.9642,-91.7957,open,San Marcos,San Marcos,,
+"Despensa Familiar Mazatenango",Despensa Familiar,14.5293,-91.5029,open,Suchitepéquez,Mazatenango,,
+"Despensa Familiar Retalhuleu",Despensa Familiar,14.5376,-91.6860,open,Retalhuleu,Retalhuleu,,
+"Despensa Familiar Puerto Barrios",Despensa Familiar,15.7310,-88.5960,open,Izabal,Puerto Barrios,,
+"Maxi Despensa Villa Nueva",Maxi Despensa,14.5286,-90.5897,open,Guatemala,Villa Nueva,2021-03-10,Calzada Roosevelt km 18
+"Maxi Despensa Zona 9",Maxi Despensa,14.6010,-90.5120,open,Guatemala,Guatemala,,
+"Maxi Despensa Xela",Maxi Despensa,14.8380,-91.5160,open,Quetzaltenango,Quetzaltenango,,
+"Maxi Despensa Escuintla",Maxi Despensa,14.3020,-90.7850,open,Escuintla,Escuintla,,
+"Walmart Aguilar Batres",Walmart,14.5930,-90.5430,open,Guatemala,Guatemala,,
+"Walmart Pradera Xela",Walmart,14.8410,-91.5100,open,Quetzaltenango,Quetzaltenango,,
+"Walmart Miraflores",Walmart,14.5990,-90.5440,open,Guatemala,Guatemala,,
+"Paiz Zona 10",Paiz,14.5990,-90.5160,open,Guatemala,Guatemala,,
+"Paiz Miraflores",Paiz,14.5985,-90.5450,open,Guatemala,Guatemala,,
+"Paiz Petapa",Paiz,14.5220,-90.5770,open,Guatemala,San Miguel Petapa,,
+"Despensa Familiar EJEMPLO PLANIFICADA",Despensa Familiar,14.6614,-90.8200,planned,Chimaltenango,Chimaltenango,,Apertura Q3 2025

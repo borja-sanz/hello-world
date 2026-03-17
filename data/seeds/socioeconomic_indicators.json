@@ -1,0 +1,120 @@
+{
+  "_source_poverty": "INE Guatemala — Encuesta Nacional de Condiciones de Vida (ENCOVI) 2014",
+  "_source_remittances": "Banco de Guatemala — Ingreso de Divisas por Remesas Familiares 2020, distribución departamental",
+  "_note_poverty": "poverty_index = proportion of population below national poverty line (59.3% national average). Scale 0–1.",
+  "_note_remittances": "remittance_index = normalized share of households receiving remittances, relative to Huehuetenango (highest). Scale 0–1.",
+  "_url_poverty": "https://www.ine.gob.gt/encovi/",
+  "_url_remittances": "https://www.banguat.gob.gt/",
+  "departments": [
+    {
+      "department": "Guatemala",
+      "poverty_index": 0.186,
+      "remittance_index": 0.32
+    },
+    {
+      "department": "El Progreso",
+      "poverty_index": 0.341,
+      "remittance_index": 0.53
+    },
+    {
+      "department": "Sacatepéquez",
+      "poverty_index": 0.292,
+      "remittance_index": 0.39
+    },
+    {
+      "department": "Chimaltenango",
+      "poverty_index": 0.523,
+      "remittance_index": 0.66
+    },
+    {
+      "department": "Escuintla",
+      "poverty_index": 0.407,
+      "remittance_index": 0.37
+    },
+    {
+      "department": "Santa Rosa",
+      "poverty_index": 0.481,
+      "remittance_index": 0.47
+    },
+    {
+      "department": "Sololá",
+      "poverty_index": 0.740,
+      "remittance_index": 0.58
+    },
+    {
+      "department": "Totonicapán",
+      "poverty_index": 0.771,
+      "remittance_index": 0.84
+    },
+    {
+      "department": "Quetzaltenango",
+      "poverty_index": 0.393,
+      "remittance_index": 0.74
+    },
+    {
+      "department": "Suchitepéquez",
+      "poverty_index": 0.562,
+      "remittance_index": 0.45
+    },
+    {
+      "department": "Retalhuleu",
+      "poverty_index": 0.432,
+      "remittance_index": 0.42
+    },
+    {
+      "department": "San Marcos",
+      "poverty_index": 0.630,
+      "remittance_index": 0.92
+    },
+    {
+      "department": "Huehuetenango",
+      "poverty_index": 0.711,
+      "remittance_index": 1.00
+    },
+    {
+      "department": "Quiché",
+      "poverty_index": 0.702,
+      "remittance_index": 0.79
+    },
+    {
+      "department": "Baja Verapaz",
+      "poverty_index": 0.599,
+      "remittance_index": 0.47
+    },
+    {
+      "department": "Alta Verapaz",
+      "poverty_index": 0.725,
+      "remittance_index": 0.53
+    },
+    {
+      "department": "Petén",
+      "poverty_index": 0.592,
+      "remittance_index": 0.32
+    },
+    {
+      "department": "Izabal",
+      "poverty_index": 0.472,
+      "remittance_index": 0.32
+    },
+    {
+      "department": "Zacapa",
+      "poverty_index": 0.373,
+      "remittance_index": 0.42
+    },
+    {
+      "department": "Chiquimula",
+      "poverty_index": 0.613,
+      "remittance_index": 0.58
+    },
+    {
+      "department": "Jalapa",
+      "poverty_index": 0.592,
+      "remittance_index": 0.53
+    },
+    {
+      "department": "Jutiapa",
+      "poverty_index": 0.507,
+      "remittance_index": 0.53
+    }
+  ]
+}

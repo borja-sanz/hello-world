@@ -1,0 +1,60 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: georetail_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-georetail}
+      POSTGRES_USER: ${POSTGRES_USER:-georetail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-georetail_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-georetail} -d ${POSTGRES_DB:-georetail}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: georetail_backend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${BACKEND_PORT:-4000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-georetail}:${POSTGRES_PASSWORD:-georetail_secret}@postgres:5432/${POSTGRES_DB:-georetail}
+      OVERPASS_API_URL: ${OVERPASS_API_URL:-https://overpass-api.de/api/interpreter}
+      MAPBOX_SERVER_TOKEN: ${MAPBOX_SERVER_TOKEN:-pk.eyJ1IjoiYm9yamFzYW56IiwiYSI6ImNtbWkyMGljcTA3czIycnE0MnhyOTJ4aDkifQ.PaPoI1uVlEI3UrNF7Q7Suw}
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - ./backend/src:/app/src
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: georetail_frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+      VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
