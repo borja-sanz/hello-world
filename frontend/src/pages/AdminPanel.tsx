@@ -36,6 +36,7 @@ const FORMAT_COLORS: Record<string, string> = {
   'Walmart':           '#0891b2',
   'Paiz':              '#7c3aed',
   'Other':             '#6b7280',
+  'Full Potential':    '#eab308',
 };
 
 const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged }) => {
@@ -520,7 +521,10 @@ const AdminPanel: React.FC<Props> = ({ onClose, onDataChanged: _onDataChanged })
                   <div className="font-semibold text-gray-600 dark:text-gray-400 mt-1 mb-1">Columnas opcionales:</div>
                   status, department, municipio, open_date, notes<br/>
                   <div className="font-semibold text-gray-600 dark:text-gray-400 mt-1 mb-1">Formatos válidos:</div>
-                  Despensa Familiar · Maxi Despensa · Walmart · Paiz
+                  Despensa Familiar · Maxi Despensa · Walmart · Paiz · Other · <span style={{color:'#eab308',fontWeight:600}}>Full Potential</span>
+                  <div className="mt-2 text-gray-400 not-italic" style={{fontFamily:'inherit'}}>
+                    ★ <span style={{color:'#eab308'}}>Full Potential</span>: ubicaciones en pipeline de Real Estate. Se muestran en el mapa pero <strong>no afectan scoring ni brechas</strong>.
+                  </div>
                 </div>
                 <label className={`flex items-center justify-center gap-2 w-full py-2 px-4 rounded-lg border
                                   text-sm font-medium cursor-pointer transition-colors
